@@ -1,0 +1,93 @@
+.legend-panel {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.legend-panel h3 {
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin: 0 0 4px 0;
+}
+
+.legend-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.legend-section h4 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.legend-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-main);
+}
+
+.legend-shape {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.2);
+}
+
+.node-internal {
+  background-color: #10b981;
+  border-color: #059669;
+  border-radius: 4px; /* round-rectangle */
+}
+
+.node-external {
+  background-color: #64748b;
+  border-radius: 50%; /* ellipse */
+}
+
+.node-distributor {
+  background-color: #f59e0b;
+  border-color: #d97706;
+  transform: rotate(45deg); /* diamond */
+  width: 16px;
+  height: 16px;
+  margin: 2px;
+}
+
+.node-special {
+  background-color: #8b5cf6;
+  border-color: #7c3aed;
+  /* simplistic star representation via CSS polygon */
+  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+  border-radius: 0;
+  border: none;
+}
+
+.legend-edge {
+  height: 2px;
+  background-color: #475569;
+  width: 24px;
+}
+
+.edge-thin {
+  height: 2px;
+}
+
+.edge-thick {
+  height: 8px;
+  border-radius: 4px;
+}
