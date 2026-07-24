@@ -1,8 +1,11 @@
 import React, { createContext, useContext, useReducer, ReactNode } from 'react';
+import { DEFAULT_FOCUS_SORT_METRIC } from '../graph/focusRanking';
 
 export type DatasetName = 'FM' | 'FK' | 'FM_CRTX' | 'FK_CRTX';
 export type ScopeFilter = 'with-external' | 'internal-only';
 export type UniverseMode = 'active' | 'cancelled-replaced';
+export type FocusSortMetric = 'total-omzet' | 'invoice-count';
+export type PeriodFilter = number | 'all';
 
 export interface UIState {
   activeLayers: Set<DatasetName>;
@@ -11,6 +14,10 @@ export interface UIState {
   focusedNodeId: string | null;
   selectedEdgeId: string | null;
   searchQuery: string;
+  focusSortMetric: FocusSortMetric;
+  yearFrom: PeriodFilter;
+  yearTo: PeriodFilter;
+  selectedMonth: PeriodFilter;
 }
 
 type UIAction =
@@ -21,7 +28,11 @@ type UIAction =
   | { type: 'CLEAR_FOCUS' }
   | { type: 'SELECT_EDGE'; payload: string }
   | { type: 'CLEAR_EDGE_SELECTION' }
-  | { type: 'SET_SEARCH'; payload: string };
+  | { type: 'SET_SEARCH'; payload: string }
+  | { type: 'SET_FOCUS_SORT_METRIC'; payload: FocusSortMetric }
+  | { type: 'SET_YEAR_FROM'; payload: PeriodFilter }
+  | { type: 'SET_YEAR_TO'; payload: PeriodFilter }
+  | { type: 'SET_MONTH_FILTER'; payload: PeriodFilter };
 
 const initialState: UIState = {
   activeLayers: new Set(['FM', 'FK', 'FM_CRTX', 'FK_CRTX']),
@@ -29,7 +40,11 @@ const initialState: UIState = {
   universeMode: 'active',
   focusedNodeId: null,
   selectedEdgeId: null,
-  searchQuery: ''
+  searchQuery: '',
+  focusSortMetric: DEFAULT_FOCUS_SORT_METRIC,
+  yearFrom: 'all',
+  yearTo: 'all',
+  selectedMonth: 'all'
 };
 
 function uiReducer(state: UIState, action: UIAction): UIState {
@@ -57,6 +72,41 @@ function uiReducer(state: UIState, action: UIAction): UIState {
       return { ...state, selectedEdgeId: null };
     case 'SET_SEARCH':
       return { ...state, searchQuery: action.payload };
+    case 'SET_FOCUS_SORT_METRIC':
+      return { ...state, focusSortMetric: action.payload };
+    case 'SET_YEAR_FROM':
+      return {
+        ...state,
+        yearFrom: action.payload,
+        yearTo:
+          action.payload !== 'all' &&
+          state.yearTo !== 'all' &&
+          action.payload > state.yearTo
+            ? action.payload
+            : state.yearTo,
+        focusedNodeId: null,
+        selectedEdgeId: null,
+      };
+    case 'SET_YEAR_TO':
+      return {
+        ...state,
+        yearTo: action.payload,
+        yearFrom:
+          action.payload !== 'all' &&
+          state.yearFrom !== 'all' &&
+          action.payload < state.yearFrom
+            ? action.payload
+            : state.yearFrom,
+        focusedNodeId: null,
+        selectedEdgeId: null,
+      };
+    case 'SET_MONTH_FILTER':
+      return {
+        ...state,
+        selectedMonth: action.payload,
+        focusedNodeId: null,
+        selectedEdgeId: null,
+      };
     default:
       return state;
   }

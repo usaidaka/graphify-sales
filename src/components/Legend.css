@@ -1,5 +1,5 @@
 .legend-panel {
-  padding: 16px;
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -30,7 +30,7 @@
 .legend-items {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 7px;
 }
 
 .legend-item {
@@ -42,21 +42,37 @@
 }
 
 .legend-shape {
-  width: 20px;
-  height: 20px;
-  border: 1px solid var(--border-color);
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border: 2px solid;
   box-shadow: 0 0 8px rgba(0, 0, 0, 0.2);
+}
+
+.legend-node-grid,
+.legend-inline-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 10px;
+}
+
+.legend-node-grid .legend-item,
+.legend-inline-grid .legend-item {
+  min-width: 0;
+  gap: 8px;
+  font-size: 11px;
 }
 
 .node-internal {
   background-color: #10b981;
   border-color: #059669;
-  border-radius: 4px; /* round-rectangle */
+  border-radius: 50%;
 }
 
 .node-external {
-  background-color: #64748b;
-  border-radius: 50%; /* ellipse */
+  background-color: #475569;
+  border-color: #334155;
+  border-radius: 50%;
 }
 
 .node-distributor {
@@ -71,16 +87,51 @@
 .node-special {
   background-color: #8b5cf6;
   border-color: #7c3aed;
-  /* simplistic star representation via CSS polygon */
-  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
-  border-radius: 0;
-  border: none;
+  border-radius: 50%;
+}
+
+.node-import {
+  background-color: #475569;
+  border-color: #38bdf8;
+  border-width: 3px;
+  border-radius: 50%;
 }
 
 .legend-edge {
   height: 2px;
   background-color: #475569;
   width: 24px;
+}
+
+.legend-arrow {
+  position: relative;
+  width: 24px;
+  height: 3px;
+  flex: 0 0 24px;
+  border-radius: 3px;
+}
+
+.legend-arrow::after {
+  position: absolute;
+  top: 50%;
+  right: -1px;
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 7px solid currentColor;
+  content: '';
+  transform: translateY(-50%);
+}
+
+.edge-sales {
+  background: #10b981;
+  color: #10b981;
+}
+
+.edge-purchase {
+  background: #f97316;
+  color: #f97316;
 }
 
 .edge-thin {

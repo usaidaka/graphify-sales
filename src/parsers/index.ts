@@ -16,6 +16,38 @@ function isNpwpEmptyOrImport(val: any): boolean {
   return str === '' || str === '-' || str === '0' || str.startsWith('-');
 }
 
+const INDONESIAN_MONTHS: Record<string, number> = {
+  januari: 1,
+  februari: 2,
+  maret: 3,
+  april: 4,
+  mei: 5,
+  juni: 6,
+  juli: 7,
+  agustus: 8,
+  september: 9,
+  oktober: 10,
+  november: 11,
+  desember: 12,
+};
+
+function parseMonth(val: any): number | null {
+  const normalized = String(val ?? '').trim().toLowerCase();
+  if (!normalized) return null;
+
+  const numericMonth = Number(normalized);
+  if (Number.isInteger(numericMonth) && numericMonth >= 1 && numericMonth <= 12) {
+    return numericMonth;
+  }
+
+  return INDONESIAN_MONTHS[normalized] ?? null;
+}
+
+function parseYear(val: any): number | null {
+  const year = Number(String(val ?? '').trim());
+  return Number.isInteger(year) && year > 0 ? year : null;
+}
+
 function extractRows(sheet: xlsx.WorkSheet, headerMap: Record<string, string>, startRow: number = 1): RawTransactionRow[] {
   // Use header: 1 to get array of arrays
   const json: any[][] = xlsx.utils.sheet_to_json(sheet, { header: 1 });
@@ -57,6 +89,8 @@ function extractRows(sheet: xlsx.WorkSheet, headerMap: Record<string, string>, s
     const statusVal = String(row[colIndex[headerMap.status]] || 'Normal').trim();
     const masa = String(row[colIndex[headerMap.masa]] || '');
     const tahun = String(row[colIndex[headerMap.tahun]] || '');
+    const month = parseMonth(masa);
+    const year = parseYear(tahun);
     
     const isImport = isNpwpEmptyOrImport(sellerNpwp) || isNpwpEmptyOrImport(buyerNpwp);
 
@@ -71,6 +105,8 @@ function extractRows(sheet: xlsx.WorkSheet, headerMap: Record<string, string>, s
       approvalStatus: approval.trim(),
       status: statusVal,
       period: `${masa} / ${tahun}`.trim(),
+      month,
+      year,
       isImport
     });
   }

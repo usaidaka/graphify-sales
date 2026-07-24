@@ -7,15 +7,15 @@ export const Legend: React.FC = () => {
       <h3>Legend</h3>
       
       <div className="legend-section">
-        <h4>Node Types</h4>
-        <div className="legend-items">
+        <h4>Jenis Perusahaan</h4>
+        <div className="legend-items legend-node-grid">
           <div className="legend-item">
             <div className="legend-shape node-internal"></div>
-            <span>Internal Company</span>
+            <span>Perusahaan Internal</span>
           </div>
           <div className="legend-item">
             <div className="legend-shape node-external"></div>
-            <span>External Customer</span>
+            <span>Perusahaan Eksternal</span>
           </div>
           <div className="legend-item">
             <div className="legend-shape node-distributor"></div>
@@ -23,7 +23,11 @@ export const Legend: React.FC = () => {
           </div>
           <div className="legend-item">
             <div className="legend-shape node-special"></div>
-            <span>Special External</span>
+            <span>Eksternal Khusus</span>
+          </div>
+          <div className="legend-item">
+            <div className="legend-shape node-import"></div>
+            <span>Transaksi Import</span>
           </div>
         </div>
       </div>
@@ -31,15 +35,31 @@ export const Legend: React.FC = () => {
       <div className="divider"></div>
 
       <div className="legend-section">
-        <h4>Edge Weights</h4>
-        <div className="legend-items">
+        <h4>Arah Transaksi</h4>
+        <div className="legend-items legend-inline-grid">
+          <div className="legend-item">
+            <div className="legend-arrow edge-sales"></div>
+            <span>Penjualan</span>
+          </div>
+          <div className="legend-item">
+            <div className="legend-arrow edge-purchase"></div>
+            <span>Pembelian</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="divider"></div>
+
+      <div className="legend-section">
+        <h4>Volume Omzet</h4>
+        <div className="legend-items legend-inline-grid">
           <div className="legend-item">
             <div className="legend-edge edge-thin"></div>
-            <span>Few Invoices</span>
+            <span>Omzet Lebih Kecil</span>
           </div>
           <div className="legend-item">
             <div className="legend-edge edge-thick"></div>
-            <span>Many Invoices</span>
+            <span>Omzet Lebih Besar</span>
           </div>
         </div>
       </div>

@@ -10,6 +10,13 @@
     var(--bg-color);
 }
 
+.network-graph-container:fullscreen,
+.network-graph-container.is-fullscreen {
+  width: 100vw;
+  height: 100vh;
+  background-color: var(--bg-color);
+}
+
 .cy-canvas {
   width: 100%;
   height: 100%;
@@ -54,6 +61,7 @@
   flex-direction: column;
   gap: 8px;
   padding: 8px;
+  pointer-events: auto;
   z-index: 10;
 }
 
@@ -73,8 +81,86 @@
   padding: 0;
 }
 
+.graph-controls button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.graph-controls button:active {
+  transform: scale(0.94);
+}
+
 .graph-controls button:hover {
   background: var(--accent-color);
   color: white;
   border-color: var(--accent-hover);
+}
+
+.graph-empty-state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 20;
+  display: flex;
+  padding: 20px 24px;
+  transform: translate(-50%, -50%);
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.graph-empty-state strong {
+  color: var(--text-main);
+  font-size: 14px;
+}
+
+.graph-empty-state span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.focus-sort-control {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  transform: translateX(-50%);
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.focus-sort-control select {
+  min-width: 132px;
+  padding: 7px 30px 7px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  color: var(--text-main);
+  font: inherit;
+  cursor: pointer;
+}
+
+.focus-sort-control select:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+@media (max-width: 720px) {
+  .focus-sort-control {
+    top: 12px;
+    max-width: calc(100% - 24px);
+    flex-direction: column;
+    gap: 6px;
+  }
 }

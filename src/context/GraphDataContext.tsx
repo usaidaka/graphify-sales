@@ -7,6 +7,7 @@ import { useUI } from './UIContext';
 
 interface GraphDataContextValue {
   graph: NormalizedGraph | null;
+  availableYears: number[];
   loading: boolean;
   error: string | null;
 }
@@ -19,6 +20,14 @@ export const GraphDataProvider: React.FC<{ children: ReactNode }> = ({ children 
   const [graph, setGraph] = useState<NormalizedGraph | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const availableYears = parsedData
+    ? Array.from(new Set([
+        ...parsedData.fm,
+        ...parsedData.fk,
+        ...parsedData.fmCrtx,
+        ...parsedData.fkCrtx,
+      ].flatMap(row => row.year === null ? [] : [row.year]))).sort((a, b) => b - a)
+    : [];
 
   // Load raw data once
   useEffect(() => {
@@ -40,13 +49,29 @@ export const GraphDataProvider: React.FC<{ children: ReactNode }> = ({ children 
   // Re-normalize graph whenever universeMode or scopeFilter changes
   useEffect(() => {
     if (parsedData) {
-      const normalized = normalize(parsedData, state.universeMode, state.scopeFilter);
+      const normalized = normalize(
+        parsedData,
+        state.universeMode,
+        state.scopeFilter,
+        state.yearFrom,
+        state.yearTo,
+        state.selectedMonth,
+        state.activeLayers
+      );
       setGraph(normalized);
     }
-  }, [parsedData, state.universeMode, state.scopeFilter]);
+  }, [
+    parsedData,
+    state.universeMode,
+    state.scopeFilter,
+    state.yearFrom,
+    state.yearTo,
+    state.selectedMonth,
+    state.activeLayers,
+  ]);
 
   return (
-    <GraphDataContext.Provider value={{ graph, loading, error }}>
+    <GraphDataContext.Provider value={{ graph, availableYears, loading, error }}>
       {children}
     </GraphDataContext.Provider>
   );

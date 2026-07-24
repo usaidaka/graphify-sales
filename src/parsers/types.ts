@@ -9,6 +9,8 @@ export interface RawTransactionRow {
   approvalStatus: string;
   status: string; // Normal, Normal-Pengganti, Diganti, Batal
   period: string; // Masa / Tahun
+  month: number | null;
+  year: number | null;
   isImport: boolean;
 }
 

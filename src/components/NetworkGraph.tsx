@@ -5,9 +5,15 @@ import { useUI } from '../context/UIContext';
 import { buildCytoscapeElements } from '../graph/builder';
 import { graphStyles } from '../graph/styles';
 import { runLayout } from '../graph/layout';
+import {
+  aggregateNeighborMetrics,
+  isFocusSortVisible,
+  rankNeighborRadii,
+} from '../graph/focusRanking';
 import './NetworkGraph.css';
 
 export const NetworkGraph: React.FC = () => {
+  const graphContainerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
   // Stores original global positions before Focus Mode rearranges neighborhood
@@ -15,6 +21,7 @@ export const NetworkGraph: React.FC = () => {
   const { graph, loading, error } = useGraphData();
   const { dispatch, state } = useUI();
   const [layoutRunning, setLayoutRunning] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Initialize or re-populate graph when data changes
   useEffect(() => {
@@ -79,22 +86,54 @@ export const NetworkGraph: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const fullscreen = document.fullscreenElement === graphContainerRef.current;
+      setIsFullscreen(fullscreen);
+
+      requestAnimationFrame(() => {
+        if (!cyRef.current) return;
+        cyRef.current.resize();
+        cyRef.current.fit(cyRef.current.elements(':visible'), 48);
+      });
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const setZoomAroundViewportCenter = (factor: number) => {
+    const cy = cyRef.current;
+    if (!cy) return;
+
+    const nextZoom = Math.min(3, Math.max(0.1, cy.zoom() * factor));
+    cy.stop();
+    cy.zoom({
+      level: nextZoom,
+      renderedPosition: {
+        x: cy.width() / 2,
+        y: cy.height() / 2,
+      },
+    });
+  };
+
   const handleZoomIn = () => {
-    if (cyRef.current) {
-      cyRef.current.zoom(cyRef.current.zoom() * 1.5);
-    }
+    setZoomAroundViewportCenter(1.25);
   };
 
   const handleZoomOut = () => {
-    if (cyRef.current) {
-      cyRef.current.zoom(cyRef.current.zoom() * 0.666);
-    }
+    setZoomAroundViewportCenter(0.8);
   };
 
-  const handleFit = () => {
-    if (cyRef.current) {
-      const isCompact = state.scopeFilter === 'internal-only';
-      cyRef.current.fit(undefined, isCompact ? 30 : 40);
+  const handleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else if (graphContainerRef.current) {
+        await graphContainerRef.current.requestFullscreen();
+      }
+    } catch (fullscreenError) {
+      console.error('Unable to toggle graph fullscreen:', fullscreenError);
     }
   };
 
@@ -233,63 +272,39 @@ export const NetworkGraph: React.FC = () => {
           return datasets.some(ds => state.activeLayers.has(ds as any));
         });
 
-        // Build neighbor → accumulated DPP map (purely from focused node's perspective)
-        const neighborMap = new Map<string, { nodeEl: any; dpp: number }>();
+        // Aggregate the selected metric per neighbor from the focused node's perspective.
+        const metricEdges: Array<{
+          source: string;
+          target: string;
+          totalDPP: number;
+          invoiceCount: number;
+        }> = [];
         activeEdges.forEach(edge => {
-          const neighborId = edge.data('source') === focusedNodeId
-            ? edge.data('target')
-            : edge.data('source');
-          const neighborEl = cyRef.current!.getElementById(neighborId);
-          if (neighborEl.length === 0) return;
-
-          const dpp = (edge.data('totalDPP') as number) || ((edge.data('invoiceCount') as number || 1) * 10_000_000);
-          const entry = neighborMap.get(neighborId);
-          if (entry) {
-            entry.dpp += dpp;
-          } else {
-            neighborMap.set(neighborId, { nodeEl: neighborEl, dpp });
-          }
+          metricEdges.push({
+            source: edge.data('source'),
+            target: edge.data('target'),
+            totalDPP: edge.data('totalDPP') ?? 0,
+            invoiceCount: edge.data('invoiceCount') ?? 0,
+          });
         });
 
-        const neighborData = Array.from(neighborMap.values()).sort((a, b) => b.dpp - a.dpp);
+        const totals = aggregateNeighborMetrics(focusedNodeId, metricEdges, state.focusSortMetric);
+        const neighborData = rankNeighborRadii(totals);
         if (neighborData.length === 0) return;
 
-        const sumDPP = neighborData.reduce((sum, item) => sum + item.dpp, 0);
-        const maxDPP = neighborData[0].dpp; // #1 company DPP
         const count = neighborData.length;
         const focusedPos = { x: tNode.position('x'), y: tNode.position('y') };
         const angleStep = (2 * Math.PI) / count;
 
-        const minRadius = 130;
-        const gapPerRank = 60; // Represents the "2cm" consistent gap you requested
-        
-        let prevRadius = minRadius;
-        let prevDpp = maxDPP;
-
-        neighborData.forEach(({ nodeEl, dpp }, idx) => {
-          let finalRadius;
-
-          if (idx === 0) {
-            // #1 selalu di jarak terdalam
-            finalRadius = minRadius;
-          } else {
-            if (dpp < prevDpp) {
-              // Jika volume lebih kecil (turun rank), tambah jarak fix (2cm)
-              finalRadius = prevRadius + gapPerRank;
-            } else {
-              // Jika seri (volume sama persis), pertahankan jarak yang sama
-              finalRadius = prevRadius;
-            }
-          }
-
-          prevRadius = finalRadius;
-          prevDpp = dpp;
-
+        neighborData.forEach(({ neighborId, radius }, idx) => {
+          const nodeEl = cyRef.current!.getElementById(neighborId);
+          if (nodeEl.length === 0) return;
+          nodeEl.stop();
           const angle = idx * angleStep - Math.PI / 2; // start from top (12 o'clock)
           nodeEl.animate({
             position: {
-              x: focusedPos.x + finalRadius * Math.cos(angle),
-              y: focusedPos.y + finalRadius * Math.sin(angle),
+              x: focusedPos.x + radius * Math.cos(angle),
+              y: focusedPos.y + radius * Math.sin(angle),
             },
             duration: 480
           });
@@ -328,7 +343,7 @@ export const NetworkGraph: React.FC = () => {
         }, 500);
       }
     }
-  }, [state.focusedNodeId, state.activeLayers, layoutRunning]);
+  }, [state.focusedNodeId, state.activeLayers, state.focusSortMetric, layoutRunning]);
 
 
 
@@ -343,18 +358,64 @@ export const NetworkGraph: React.FC = () => {
   }
 
   return (
-    <div className="network-graph-container">
+    <div
+      ref={graphContainerRef}
+      className={`network-graph-container ${isFullscreen ? 'is-fullscreen' : ''}`}
+    >
       {(loading || layoutRunning) && (
         <div className="loading-overlay glass-panel">
           <div className="spinner"></div>
           <p>{loading ? 'Loading data...' : 'Computing layout...'}</p>
         </div>
       )}
+      {!loading && !layoutRunning && graph?.nodes.length === 0 && (
+        <div className="graph-empty-state glass-panel">
+          <strong>Tidak ada transaksi</strong>
+          <span>Coba pilih tahun, bulan, atau filter lain.</span>
+        </div>
+      )}
       <div ref={containerRef} className="cy-canvas" />
+      {isFocusSortVisible(state.focusedNodeId) && (
+        <label className="focus-sort-control glass-panel">
+          <span>Urutkan berdasarkan</span>
+          <select
+            aria-label="Urutkan partner fokus berdasarkan"
+            value={state.focusSortMetric}
+            onChange={(event) => dispatch({
+              type: 'SET_FOCUS_SORT_METRIC',
+              payload: event.target.value as typeof state.focusSortMetric,
+            })}
+          >
+            <option value="total-omzet">Total Omzet</option>
+            <option value="invoice-count">Jumlah Faktur</option>
+          </select>
+        </label>
+      )}
       <div className="graph-controls glass-panel">
-        <button onClick={handleZoomIn} title="Zoom In">+</button>
-        <button onClick={handleZoomOut} title="Zoom Out">-</button>
-        <button onClick={handleFit} title="Fit to Screen">⛶</button>
+        <button type="button" onClick={handleZoomIn} title="Zoom In" aria-label="Zoom In">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+        </button>
+        <button type="button" onClick={handleZoomOut} title="Zoom Out" aria-label="Zoom Out">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 12h14" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={handleFullscreen}
+          title={isFullscreen ? 'Keluar Fullscreen' : 'Fullscreen'}
+          aria-label={isFullscreen ? 'Keluar Fullscreen' : 'Fullscreen'}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            {isFullscreen ? (
+              <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+            ) : (
+              <path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5" />
+            )}
+          </svg>
+        </button>
       </div>
     </div>
   );

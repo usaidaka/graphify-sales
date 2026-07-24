@@ -1,8 +1,11 @@
 .layer-manager {
   padding: 16px;
   display: flex;
+  min-height: 0;
   flex-direction: column;
   gap: 16px;
+  overflow-y: auto;
+  z-index: 1;
 }
 
 .control-group {
@@ -17,6 +20,59 @@
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--text-muted);
+}
+
+.period-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.period-month-grid {
+  grid-template-columns: 1fr;
+  margin-top: 8px;
+}
+
+.period-range-summary {
+  color: var(--accent-color);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.period-filter {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.period-filter span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.period-filter select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 26px 8px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  outline: none;
+}
+
+.period-filter select:focus {
+  border-color: var(--accent-color);
+}
+
+.period-filter select option {
+  background: var(--bg-panel);
+  color: var(--text-main);
 }
 
 .segmented-control {

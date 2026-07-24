@@ -188,7 +188,11 @@ export function mergeEdges(rows: DatasetRow[], aliasMap: Map<string, AliasInfo>)
 export function normalize(
   parsed: ParsedWorkbook,
   universeMode: 'active' | 'cancelled-replaced' = 'active',
-  scopeFilter: 'with-external' | 'internal-only' = 'with-external'
+  scopeFilter: 'with-external' | 'internal-only' = 'with-external',
+  yearFrom: number | 'all' = 'all',
+  yearTo: number | 'all' = 'all',
+  selectedMonth: number | 'all' = 'all',
+  activeDatasets: Set<string> = new Set(['FM', 'FK', 'FM_CRTX', 'FK_CRTX'])
 ): NormalizedGraph {
   const internalSet = new Set(parsed.dataPerusahaan || []);
   const aliasMap = buildAliasMap(parsed.companyMaster || []);
@@ -200,16 +204,20 @@ export function normalize(
     ...parsed.fkCrtx.map(row => ({ row, dataset: 'FK_CRTX' }))
   ];
 
-  // Filter rows by Universe Mode
+  // Apply all transaction-level filters before merging so totals remain accurate.
   const filteredRows = rawRows.filter(({ row }) => {
     const statusNorm = (row.status || '').trim().toLowerCase();
     const isCancelledOrReplaced = statusNorm.includes('batal') || statusNorm.includes('diganti');
+    const matchesUniverse = universeMode === 'active'
+      ? !isCancelledOrReplaced
+      : isCancelledOrReplaced;
+    const matchesYearFrom = yearFrom === 'all' || (row.year !== null && row.year >= yearFrom);
+    const matchesYearTo = yearTo === 'all' || (row.year !== null && row.year <= yearTo);
+    const matchesMonth = selectedMonth === 'all' || row.month === selectedMonth;
 
-    if (universeMode === 'active') {
-      return !isCancelledOrReplaced;
-    } else {
-      return isCancelledOrReplaced;
-    }
+    return matchesUniverse && matchesYearFrom && matchesYearTo && matchesMonth;
+  }).filter(({ dataset }) => {
+    return activeDatasets.has(dataset);
   });
 
   const nodeMap = buildNodeMap(filteredRows, internalSet, aliasMap);
@@ -224,6 +232,14 @@ export function normalize(
     const internalKeys = new Set(nodes.map(n => n.id));
     edges = edges.filter(e => internalKeys.has(e.source) && internalKeys.has(e.target));
   }
+
+  // Never expose companies without a transaction after all active filters.
+  const connectedNodeIds = new Set<string>();
+  edges.forEach(edge => {
+    connectedNodeIds.add(edge.source);
+    connectedNodeIds.add(edge.target);
+  });
+  nodes = nodes.filter(node => connectedNodeIds.has(node.id));
 
   return { nodes, edges };
 }
