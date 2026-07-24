@@ -1,5 +1,5 @@
 import * as xlsx from 'xlsx';
-import { RawTransactionRow, ParsedWorkbook } from './types';
+import { RawTransactionRow, ParsedWorkbook, InternalCompanyMaster } from './types';
 import { COLUMN_MAPS } from './columnMaps';
 
 function parseNumber(val: any): number {
@@ -8,6 +8,12 @@ function parseNumber(val: any): number {
   const cleaned = String(val).replace(/[^0-9.-]+/g, '');
   const num = parseFloat(cleaned);
   return isNaN(num) ? 0 : num;
+}
+
+function isNpwpEmptyOrImport(val: any): boolean {
+  if (!val) return true;
+  const str = String(val).trim();
+  return str === '' || str === '-' || str === '0' || str.startsWith('-');
 }
 
 function extractRows(sheet: xlsx.WorkSheet, headerMap: Record<string, string>, startRow: number = 1): RawTransactionRow[] {
@@ -42,49 +48,81 @@ function extractRows(sheet: xlsx.WorkSheet, headerMap: Record<string, string>, s
     // Skip empty essential rows
     if (!seller || !buyer) continue;
 
+    const sellerNpwp = String(row[colIndex[headerMap.sellerNpwp]] || '').trim();
+    const buyerNpwp = String(row[colIndex[headerMap.buyerNpwp]] || '').trim();
     const invoice = String(row[colIndex[headerMap.invoice]] || '');
     const dpp = parseNumber(row[colIndex[headerMap.dpp]]);
     const ppn = parseNumber(row[colIndex[headerMap.ppn]]);
     const approval = String(row[colIndex[headerMap.approval]] || 'Unknown');
+    const statusVal = String(row[colIndex[headerMap.status]] || 'Normal').trim();
     const masa = String(row[colIndex[headerMap.masa]] || '');
     const tahun = String(row[colIndex[headerMap.tahun]] || '');
     
+    const isImport = isNpwpEmptyOrImport(sellerNpwp) || isNpwpEmptyOrImport(buyerNpwp);
+
     rows.push({
       sellerName: String(seller).trim(),
       buyerName: String(buyer).trim(),
+      sellerNpwp,
+      buyerNpwp,
       invoiceNumber: invoice.trim(),
       dpp,
       ppn,
       approvalStatus: approval.trim(),
-      period: `${masa} / ${tahun}`.trim()
+      status: statusVal,
+      period: `${masa} / ${tahun}`.trim(),
+      isImport
     });
   }
 
   return rows;
 }
 
-export function parseDataPerusahaanSheet(sheet: xlsx.WorkSheet): string[] {
+export function parseDataPerusahaanSheet(sheet: xlsx.WorkSheet): { companies: string[]; companyMaster: InternalCompanyMaster[] } {
   const json: any[][] = xlsx.utils.sheet_to_json(sheet, { header: 1 });
-  if (json.length <= 0) return [];
+  if (json.length <= 0) return { companies: [], companyMaster: [] };
   
   const headerRow = json[0];
   let compIdx = -1;
+  let abbrIdx = -1;
+  let groupIdx = -1;
+
   headerRow.forEach((col: any, index: number) => {
-    if (col && typeof col === 'string' && col.trim() === COLUMN_MAPS.DATA_PERUSAHAAN.company) {
-      compIdx = index;
+    if (col && typeof col === 'string') {
+      const key = col.trim();
+      if (key === COLUMN_MAPS.DATA_PERUSAHAAN.company) compIdx = index;
+      if (key === COLUMN_MAPS.DATA_PERUSAHAAN.abbreviation) abbrIdx = index;
+      if (key === COLUMN_MAPS.DATA_PERUSAHAAN.group) groupIdx = index;
     }
   });
 
-  if (compIdx === -1) return [];
+  if (compIdx === -1) return { companies: [], companyMaster: [] };
 
   const companies: string[] = [];
+  const companyMaster: InternalCompanyMaster[] = [];
+
   for (let i = 1; i < json.length; i++) {
     const row = json[i];
     if (row && row[compIdx]) {
-      companies.push(String(row[compIdx]).trim());
+      const fullName = String(row[compIdx]).trim();
+      const abbreviation = abbrIdx !== -1 && row[abbrIdx] ? String(row[abbrIdx]).trim() : fullName;
+      const group = groupIdx !== -1 && row[groupIdx] ? String(row[groupIdx]).trim() : '';
+
+      if (fullName) {
+        companies.push(fullName);
+        if (abbreviation && abbreviation !== fullName) {
+          companies.push(abbreviation);
+        }
+        companyMaster.push({
+          fullName,
+          abbreviation,
+          group
+        });
+      }
     }
   }
-  return companies;
+
+  return { companies, companyMaster };
 }
 
 export function parseWorkbook(buffer: ArrayBuffer): ParsedWorkbook {
@@ -96,11 +134,17 @@ export function parseWorkbook(buffer: ArrayBuffer): ParsedWorkbook {
     if (name.toLowerCase() === 'data perusahaan') dpSheetName = name;
   });
 
+  const dpResult = workbook.Sheets[dpSheetName] 
+    ? parseDataPerusahaanSheet(workbook.Sheets[dpSheetName]) 
+    : { companies: [], companyMaster: [] };
+
   return {
     fm: workbook.Sheets['FM'] ? extractRows(workbook.Sheets['FM'], COLUMN_MAPS.FM, 1) : [],
     fk: workbook.Sheets['FK'] ? extractRows(workbook.Sheets['FK'], COLUMN_MAPS.FK, 1) : [],
     fmCrtx: workbook.Sheets['FM_CRTX'] ? extractRows(workbook.Sheets['FM_CRTX'], COLUMN_MAPS.FM_CRTX, 1) : [],
     fkCrtx: workbook.Sheets['FK_CRTX'] ? extractRows(workbook.Sheets['FK_CRTX'], COLUMN_MAPS.FK_CRTX, 1) : [],
-    dataPerusahaan: workbook.Sheets[dpSheetName] ? parseDataPerusahaanSheet(workbook.Sheets[dpSheetName]) : []
+    dataPerusahaan: dpResult.companies,
+    companyMaster: dpResult.companyMaster
   };
 }
+

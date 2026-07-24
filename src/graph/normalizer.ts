@@ -1,4 +1,4 @@
-import { ParsedWorkbook, RawTransactionRow } from '../parsers/types';
+import { ParsedWorkbook, RawTransactionRow, InternalCompanyMaster } from '../parsers/types';
 import { NodeType, NodeData, EdgeData, NormalizedGraph } from './types';
 
 export function normalizeCompanyName(name: string): string {
@@ -6,18 +6,68 @@ export function normalizeCompanyName(name: string): string {
   return String(name).trim();
 }
 
+export type AliasInfo = {
+  canonicalName: string;
+  fullName: string;
+};
+
+export function buildAliasMap(companyMaster: InternalCompanyMaster[]): Map<string, AliasInfo> {
+  const map = new Map<string, AliasInfo>();
+  if (!companyMaster) return map;
+
+  companyMaster.forEach(item => {
+    const full = normalizeCompanyName(item.fullName);
+    const abbr = normalizeCompanyName(item.abbreviation);
+    const canonical = abbr || full;
+    
+    if (full) {
+      map.set(full.toLowerCase(), { canonicalName: canonical, fullName: full });
+    }
+    if (abbr) {
+      map.set(abbr.toLowerCase(), { canonicalName: canonical, fullName: full });
+    }
+  });
+
+  return map;
+}
+
+export function resolveCompany(name: string, aliasMap: Map<string, AliasInfo>): { key: string; displayName: string; fullName?: string } {
+  const norm = normalizeCompanyName(name);
+  const lower = norm.toLowerCase();
+  
+  if (aliasMap.has(lower)) {
+    const info = aliasMap.get(lower)!;
+    return {
+      key: info.canonicalName.toLowerCase(),
+      displayName: info.canonicalName,
+      fullName: info.fullName
+    };
+  }
+
+  return {
+    key: lower,
+    displayName: norm,
+    fullName: norm
+  };
+}
+
 export function classifyNode(name: string, internalSet: Set<string>): NodeType {
   const norm = normalizeCompanyName(name).toLowerCase();
   
-  if (norm === 'pt software farmer indonesia') {
-    return 'distributor';
-  }
-  
-  if (norm === 'cv berkah cahaya abadi') {
+  // Special External companies per client specification:
+  // PT SFI (PT Software Farmer Indonesia) and PT BCA (CV/PT Berkah Cahaya Abadi)
+  if (
+    norm === 'pt software farmer indonesia' ||
+    norm === 'pt sfi' ||
+    norm === 'cv berkah cahaya abadi' ||
+    norm === 'pt berkah cahaya abadi' ||
+    norm === 'pt bca' ||
+    norm === 'cv bca'
+  ) {
     return 'special-external';
   }
   
-  // Check against internal master (assuming internalSet holds lowercase normalized names or we check dynamically)
+  // Check against internal master set (case-insensitive)
   for (const internalName of internalSet) {
     if (normalizeCompanyName(internalName).toLowerCase() === norm) {
       return 'internal';
@@ -32,67 +82,78 @@ type DatasetRow = {
   dataset: string;
 };
 
-export function buildNodeMap(rows: DatasetRow[], internalSet: Set<string>): Map<string, NodeData> {
+export function buildNodeMap(
+  rows: DatasetRow[], 
+  internalSet: Set<string>, 
+  aliasMap: Map<string, AliasInfo>
+): Map<string, NodeData> {
   const nodeMap = new Map<string, NodeData>();
 
-  // Add internal nodes first to ensure they get their display name from Data Perusahaan
+  // Add internal master nodes first to ensure canonical abbreviations are present
   internalSet.forEach(internalName => {
-    const norm = normalizeCompanyName(internalName);
-    const key = norm.toLowerCase();
-    if (key) {
-      nodeMap.set(key, {
-        id: key,
-        companyName: norm, // Best available display name
-        nodeType: 'internal'
+    const resolved = resolveCompany(internalName, aliasMap);
+    if (resolved.key && !nodeMap.has(resolved.key)) {
+      nodeMap.set(resolved.key, {
+        id: resolved.key,
+        companyName: resolved.displayName,
+        fullName: resolved.fullName,
+        nodeType: classifyNode(resolved.displayName, internalSet)
       });
     }
   });
 
-  // Process all transaction rows for sellers and buyers
+  // Process transaction rows for sellers and buyers
   rows.forEach(({ row }) => {
-    const processCompany = (name: string) => {
-      const norm = normalizeCompanyName(name);
-      const key = norm.toLowerCase();
-      if (!key) return;
+    const processCompany = (name: string, isCompanyImport: boolean) => {
+      const resolved = resolveCompany(name, aliasMap);
+      if (!resolved.key) return;
 
-      if (!nodeMap.has(key)) {
-        nodeMap.set(key, {
-          id: key,
-          companyName: norm,
-          nodeType: classifyNode(norm, internalSet)
+      if (!nodeMap.has(resolved.key)) {
+        nodeMap.set(resolved.key, {
+          id: resolved.key,
+          companyName: resolved.displayName,
+          fullName: resolved.fullName,
+          nodeType: classifyNode(resolved.displayName, internalSet),
+          isImport: isCompanyImport
         });
+      } else if (isCompanyImport) {
+        nodeMap.get(resolved.key)!.isImport = true;
       }
     };
 
-    processCompany(row.sellerName);
-    processCompany(row.buyerName);
+    processCompany(row.sellerName, row.isImport);
+    processCompany(row.buyerName, row.isImport);
   });
 
   return nodeMap;
 }
 
-export function mergeEdges(rows: DatasetRow[]): Map<string, EdgeData> {
+export function mergeEdges(rows: DatasetRow[], aliasMap: Map<string, AliasInfo>): Map<string, EdgeData> {
   const edgeMap = new Map<string, EdgeData>();
 
   rows.forEach(({ row, dataset }) => {
-    const sourceKey = normalizeCompanyName(row.sellerName).toLowerCase();
-    const targetKey = normalizeCompanyName(row.buyerName).toLowerCase();
+    const sourceResolved = resolveCompany(row.sellerName, aliasMap);
+    const targetResolved = resolveCompany(row.buyerName, aliasMap);
     
-    if (!sourceKey || !targetKey) return;
+    if (!sourceResolved.key || !targetResolved.key) return;
     
-    const edgeId = `${sourceKey}→${targetKey}`;
+    const edgeId = `${sourceResolved.key}→${targetResolved.key}`;
+    const statusNorm = (row.status || '').trim().toLowerCase();
+    const isCancelledOrReplaced = statusNorm.includes('batal') || statusNorm.includes('diganti');
 
     if (!edgeMap.has(edgeId)) {
       edgeMap.set(edgeId, {
         id: edgeId,
-        source: sourceKey,
-        target: targetKey,
+        source: sourceResolved.key,
+        target: targetResolved.key,
         invoiceCount: 0,
         totalDPP: 0,
         totalPPN: 0,
         datasets: [],
         approvalStatus: [],
-        periods: []
+        statuses: [],
+        periods: [],
+        isCancelledOrReplaced
       });
     }
 
@@ -110,6 +171,11 @@ export function mergeEdges(rows: DatasetRow[]): Map<string, EdgeData> {
       edge.approvalStatus.push(approval);
     }
     
+    const statusVal = (row.status || '').trim();
+    if (statusVal && !edge.statuses.includes(statusVal)) {
+      edge.statuses.push(statusVal);
+    }
+
     const period = (row.period || '').trim();
     if (period && !edge.periods.includes(period)) {
       edge.periods.push(period);
@@ -119,21 +185,46 @@ export function mergeEdges(rows: DatasetRow[]): Map<string, EdgeData> {
   return edgeMap;
 }
 
-export function normalize(parsed: ParsedWorkbook): NormalizedGraph {
-  const internalSet = new Set(parsed.dataPerusahaan);
+export function normalize(
+  parsed: ParsedWorkbook,
+  universeMode: 'active' | 'cancelled-replaced' = 'active',
+  scopeFilter: 'with-external' | 'internal-only' = 'with-external'
+): NormalizedGraph {
+  const internalSet = new Set(parsed.dataPerusahaan || []);
+  const aliasMap = buildAliasMap(parsed.companyMaster || []);
   
-  const allRows: DatasetRow[] = [
+  const rawRows: DatasetRow[] = [
     ...parsed.fm.map(row => ({ row, dataset: 'FM' })),
     ...parsed.fk.map(row => ({ row, dataset: 'FK' })),
     ...parsed.fmCrtx.map(row => ({ row, dataset: 'FM_CRTX' })),
     ...parsed.fkCrtx.map(row => ({ row, dataset: 'FK_CRTX' }))
   ];
 
-  const nodeMap = buildNodeMap(allRows, internalSet);
-  const edgeMap = mergeEdges(allRows);
+  // Filter rows by Universe Mode
+  const filteredRows = rawRows.filter(({ row }) => {
+    const statusNorm = (row.status || '').trim().toLowerCase();
+    const isCancelledOrReplaced = statusNorm.includes('batal') || statusNorm.includes('diganti');
 
-  return {
-    nodes: Array.from(nodeMap.values()),
-    edges: Array.from(edgeMap.values())
-  };
+    if (universeMode === 'active') {
+      return !isCancelledOrReplaced;
+    } else {
+      return isCancelledOrReplaced;
+    }
+  });
+
+  const nodeMap = buildNodeMap(filteredRows, internalSet, aliasMap);
+  const edgeMap = mergeEdges(filteredRows, aliasMap);
+
+  let nodes = Array.from(nodeMap.values());
+  let edges = Array.from(edgeMap.values());
+
+  // Filter by Scope
+  if (scopeFilter === 'internal-only') {
+    nodes = nodes.filter(n => n.nodeType === 'internal');
+    const internalKeys = new Set(nodes.map(n => n.id));
+    edges = edges.filter(e => internalKeys.has(e.source) && internalKeys.has(e.target));
+  }
+
+  return { nodes, edges };
 }
+

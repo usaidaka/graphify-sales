@@ -7,10 +7,11 @@ import { UIProvider } from './context/UIContext'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <GraphDataProvider>
-      <UIProvider>
+    <UIProvider>
+      <GraphDataProvider>
         <App />
-      </UIProvider>
-    </GraphDataProvider>
+      </GraphDataProvider>
+    </UIProvider>
   </StrictMode>,
 )
+

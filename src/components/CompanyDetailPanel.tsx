@@ -20,33 +20,46 @@ export const CompanyDetailPanel: React.FC = () => {
 
     let totalInvoicesAsBuyer = 0;
     let totalDPPAsBuyer = 0;
-    const sellersMap = new Map<string, { name: string; count: number; id: string }>();
+    const sellersMap = new Map<string, { name: string; count: number; dpp: number; id: string }>();
 
     incomingEdges.forEach(e => {
       totalInvoicesAsBuyer += e.invoiceCount;
       totalDPPAsBuyer += e.totalDPP;
       const sourceNode = graph.nodes.find(n => n.id === e.source);
       if (sourceNode) {
-        sellersMap.set(sourceNode.id, { name: sourceNode.companyName, count: e.invoiceCount, id: sourceNode.id });
+        const existing = sellersMap.get(sourceNode.id) || { name: sourceNode.companyName, count: 0, dpp: 0, id: sourceNode.id };
+        sellersMap.set(sourceNode.id, {
+          ...existing,
+          count: existing.count + e.invoiceCount,
+          dpp: existing.dpp + e.totalDPP
+        });
       }
     });
 
     let totalInvoicesAsSeller = 0;
     let totalDPPAsSeller = 0;
-    const buyersMap = new Map<string, { name: string; count: number; id: string }>();
+    const buyersMap = new Map<string, { name: string; count: number; dpp: number; id: string }>();
 
     outgoingEdges.forEach(e => {
       totalInvoicesAsSeller += e.invoiceCount;
       totalDPPAsSeller += e.totalDPP;
       const targetNode = graph.nodes.find(n => n.id === e.target);
       if (targetNode) {
-        buyersMap.set(targetNode.id, { name: targetNode.companyName, count: e.invoiceCount, id: targetNode.id });
+        const existing = buyersMap.get(targetNode.id) || { name: targetNode.companyName, count: 0, dpp: 0, id: targetNode.id };
+        buyersMap.set(targetNode.id, {
+          ...existing,
+          count: existing.count + e.invoiceCount,
+          dpp: existing.dpp + e.totalDPP
+        });
       }
     });
 
+    const sortedIncoming = Array.from(sellersMap.values()).sort((a, b) => b.dpp - a.dpp || b.count - a.count);
+    const sortedOutgoing = Array.from(buyersMap.values()).sort((a, b) => b.dpp - a.dpp || b.count - a.count);
+
     return {
-      incoming: Array.from(sellersMap.values()).sort((a, b) => b.count - a.count),
-      outgoing: Array.from(buyersMap.values()).sort((a, b) => b.count - a.count),
+      incoming: sortedIncoming,
+      outgoing: sortedOutgoing,
       stats: {
         totalInvoicesAsBuyer,
         totalDPPAsBuyer,
@@ -100,13 +113,14 @@ export const CompanyDetailPanel: React.FC = () => {
         <div className="divider"></div>
 
         <div className="data-group">
-          <label>Suppliers / Sellers ({incoming.length})</label>
+          <label>Suppliers / Sellers (Urutan Terdekat #1 - {incoming.length})</label>
           {incoming.length > 0 ? (
             <div className="connection-list">
-              {incoming.map(s => (
+              {incoming.map((s, idx) => (
                 <div key={s.id} className="connection-item" onClick={() => handleNodeClick(s.id)}>
+                  <span className="rank-tag">#{idx + 1}</span>
                   <span className="connection-name">{s.name}</span>
-                  <span className="connection-count">{s.count} inv</span>
+                  <span className="connection-count">{formatIDR(s.dpp)}</span>
                 </div>
               ))}
             </div>
@@ -116,13 +130,14 @@ export const CompanyDetailPanel: React.FC = () => {
         </div>
 
         <div className="data-group">
-          <label>Customers / Buyers ({outgoing.length})</label>
+          <label>Customers / Buyers (Urutan Terdekat #1 - {outgoing.length})</label>
           {outgoing.length > 0 ? (
             <div className="connection-list">
-              {outgoing.map(b => (
+              {outgoing.map((b, idx) => (
                 <div key={b.id} className="connection-item" onClick={() => handleNodeClick(b.id)}>
+                  <span className="rank-tag">#{idx + 1}</span>
                   <span className="connection-name">{b.name}</span>
-                  <span className="connection-count">{b.count} inv</span>
+                  <span className="connection-count">{formatIDR(b.dpp)}</span>
                 </div>
               ))}
             </div>
@@ -134,3 +149,4 @@ export const CompanyDetailPanel: React.FC = () => {
     </div>
   );
 };
+

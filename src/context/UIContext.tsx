@@ -1,9 +1,13 @@
 import React, { createContext, useContext, useReducer, ReactNode } from 'react';
 
 export type DatasetName = 'FM' | 'FK' | 'FM_CRTX' | 'FK_CRTX';
+export type ScopeFilter = 'with-external' | 'internal-only';
+export type UniverseMode = 'active' | 'cancelled-replaced';
 
 export interface UIState {
   activeLayers: Set<DatasetName>;
+  scopeFilter: ScopeFilter;
+  universeMode: UniverseMode;
   focusedNodeId: string | null;
   selectedEdgeId: string | null;
   searchQuery: string;
@@ -11,6 +15,8 @@ export interface UIState {
 
 type UIAction =
   | { type: 'TOGGLE_LAYER'; payload: DatasetName }
+  | { type: 'SET_SCOPE_FILTER'; payload: ScopeFilter }
+  | { type: 'SET_UNIVERSE_MODE'; payload: UniverseMode }
   | { type: 'SET_FOCUS_NODE'; payload: string }
   | { type: 'CLEAR_FOCUS' }
   | { type: 'SELECT_EDGE'; payload: string }
@@ -19,6 +25,8 @@ type UIAction =
 
 const initialState: UIState = {
   activeLayers: new Set(['FM', 'FK', 'FM_CRTX', 'FK_CRTX']),
+  scopeFilter: 'with-external',
+  universeMode: 'active',
   focusedNodeId: null,
   selectedEdgeId: null,
   searchQuery: ''
@@ -35,6 +43,10 @@ function uiReducer(state: UIState, action: UIAction): UIState {
       }
       return { ...state, activeLayers: newLayers };
     }
+    case 'SET_SCOPE_FILTER':
+      return { ...state, scopeFilter: action.payload, focusedNodeId: null, selectedEdgeId: null };
+    case 'SET_UNIVERSE_MODE':
+      return { ...state, universeMode: action.payload, focusedNodeId: null, selectedEdgeId: null };
     case 'SET_FOCUS_NODE':
       return { ...state, focusedNodeId: action.payload, selectedEdgeId: null, searchQuery: '' };
     case 'CLEAR_FOCUS':
@@ -74,3 +86,4 @@ export function useUI() {
   }
   return context;
 }
+
