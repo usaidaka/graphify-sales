@@ -48,47 +48,71 @@ function parseYear(val: any): number | null {
   return Number.isInteger(year) && year > 0 ? year : null;
 }
 
-function extractRows(sheet: xlsx.WorkSheet, headerMap: Record<string, string>, startRow: number = 1): RawTransactionRow[] {
-  // Use header: 1 to get array of arrays
-  const json: any[][] = xlsx.utils.sheet_to_json(sheet, { header: 1 });
-  if (json.length <= startRow) return [];
+function findHeaderRowIndex(json: any[][]): number {
+  for (let i = 0; i < Math.min(json.length, 10); i++) {
+    const row = json[i];
+    if (!row) continue;
+    const rowText = row.map(cell => String(cell ?? '').toLowerCase().trim()).join(' ');
+    if (rowText.includes('penjual') && rowText.includes('pembeli')) {
+      return i;
+    }
+  }
+  return 1;
+}
 
-  // Find header row and build column index map
-  const headerRow = json[startRow];
-  if (!headerRow) return [];
-  
+function buildNormalizedColIndex(headerRow: any[]): Record<string, number> {
   const colIndex: Record<string, number> = {};
   headerRow.forEach((col: any, index: number) => {
     if (col && typeof col === 'string') {
-      const key = col.trim();
-      // Only take the first occurrence (duplicate columns exist in some sheets)
+      const key = col.trim().toLowerCase();
       if (!(key in colIndex)) {
         colIndex[key] = index;
       }
     }
   });
+  return colIndex;
+}
 
+function getColumnValue(row: any[], colIndexMap: Record<string, number>, possibleKeys: string[]): any {
+  for (const key of possibleKeys) {
+    const normalizedKey = key.toLowerCase().trim();
+    if (normalizedKey in colIndexMap) {
+      return row[colIndexMap[normalizedKey]];
+    }
+  }
+  return undefined;
+}
+
+function extractRows(sheet: xlsx.WorkSheet, headerMap: Record<string, string>, defaultStartRow: number = 1): RawTransactionRow[] {
+  const json: any[][] = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+  if (json.length <= 1) return [];
+
+  const startRow = findHeaderRowIndex(json);
+  const headerRow = json[startRow];
+  if (!headerRow) return [];
+  
+  const colIndex = buildNormalizedColIndex(headerRow);
   const rows: RawTransactionRow[] = [];
   
   for (let i = startRow + 1; i < json.length; i++) {
     const row = json[i];
     if (!row || row.length === 0) continue;
 
-    const seller = row[colIndex[headerMap.seller]];
-    const buyer = row[colIndex[headerMap.buyer]];
+    const seller = getColumnValue(row, colIndex, [headerMap.seller, 'penjual']);
+    const buyer = getColumnValue(row, colIndex, [headerMap.buyer, 'pembeli']);
     
     // Skip empty essential rows
     if (!seller || !buyer) continue;
 
-    const sellerNpwp = String(row[colIndex[headerMap.sellerNpwp]] || '').trim();
-    const buyerNpwp = String(row[colIndex[headerMap.buyerNpwp]] || '').trim();
-    const invoice = String(row[colIndex[headerMap.invoice]] || '');
-    const dpp = parseNumber(row[colIndex[headerMap.dpp]]);
-    const ppn = parseNumber(row[colIndex[headerMap.ppn]]);
-    const approval = String(row[colIndex[headerMap.approval]] || 'Unknown');
-    const statusVal = String(row[colIndex[headerMap.status]] || 'Normal').trim();
-    const masa = String(row[colIndex[headerMap.masa]] || '');
-    const tahun = String(row[colIndex[headerMap.tahun]] || '');
+    const sellerNpwp = String(getColumnValue(row, colIndex, [headerMap.sellerNpwp, 'npwp penjual']) || '').trim();
+    const buyerNpwp = String(getColumnValue(row, colIndex, [headerMap.buyerNpwp, 'npwp pembeli']) || '').trim();
+    const invoice = String(getColumnValue(row, colIndex, [headerMap.invoice, 'no. faktur / dokumen', 'no. faktur', 'faktur']) || '');
+    const dpp = parseNumber(getColumnValue(row, colIndex, [headerMap.dpp, 'dpp']));
+    const ppn = parseNumber(getColumnValue(row, colIndex, [headerMap.ppn, 'ppn']));
+    const approval = String(getColumnValue(row, colIndex, [headerMap.approval, 'stat approval', 'stat. approval', 'status approval', 'approval']) || 'Unknown');
+    const statusVal = String(getColumnValue(row, colIndex, [headerMap.status, 'status']) || 'Normal').trim();
+    const masa = String(getColumnValue(row, colIndex, [headerMap.masa, 'masa']) || '');
+    const tahun = String(getColumnValue(row, colIndex, [headerMap.tahun, 'tahun']) || '');
     const month = parseMonth(masa);
     const year = parseYear(tahun);
     
@@ -164,13 +188,16 @@ export function parseDataPerusahaanSheet(sheet: xlsx.WorkSheet): { companies: st
 export function parseWorkbook(buffer: ArrayBuffer): ParsedWorkbook {
   const workbook = xlsx.read(buffer, { type: 'array' });
   
-  // Find sheets (case-insensitive for Data Perusahaan)
-  let dpSheetName = 'Data Perusahaan';
+  // Find sheets (case-insensitive & search for Data Perusahaan / Display)
+  let dpSheetName = '';
   workbook.SheetNames.forEach(name => {
-    if (name.toLowerCase() === 'data perusahaan') dpSheetName = name;
+    const lower = name.toLowerCase();
+    if (lower.includes('perusahaan') || lower.includes('display')) {
+      dpSheetName = name;
+    }
   });
 
-  const dpResult = workbook.Sheets[dpSheetName] 
+  const dpResult = dpSheetName && workbook.Sheets[dpSheetName] 
     ? parseDataPerusahaanSheet(workbook.Sheets[dpSheetName]) 
     : { companies: [], companyMaster: [] };
 
@@ -183,4 +210,3 @@ export function parseWorkbook(buffer: ArrayBuffer): ParsedWorkbook {
     companyMaster: dpResult.companyMaster
   };
 }
-
