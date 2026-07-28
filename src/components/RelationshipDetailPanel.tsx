@@ -1,7 +1,7 @@
 import React from 'react';
 import { useUI } from '../context/UIContext';
 import { useGraphData } from '../context/GraphDataContext';
-import { formatIDR } from '../utils/formatters';
+import { formatIDR, formatOmzetFaktur } from '../utils/formatters';
 import './RelationshipDetailPanel.css';
 
 export const RelationshipDetailPanel: React.FC = () => {
@@ -46,8 +46,12 @@ export const RelationshipDetailPanel: React.FC = () => {
 
         <div className="data-row">
           <div className="data-group">
-            <label>Total Invoices</label>
-            <div className="value highlight-value">{edge.invoiceCount}</div>
+            <label>Total Faktur</label>
+            <div className="value highlight-value">{edge.invoiceCount} F</div>
+          </div>
+          <div className="data-group">
+            <label>Ringkasan Transaksi</label>
+            <div className="value highlight-value">{formatOmzetFaktur(edge.totalDPP, edge.invoiceCount)}</div>
           </div>
         </div>
 

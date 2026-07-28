@@ -27,12 +27,13 @@ export const StatisticsPanel: React.FC = () => {
 
     const activeNodes = graph.nodes.filter(n => activeNodeIds.has(n.id));
 
-    let internal = 0, external = 0, distributor = 0, special = 0;
+    let internal = 0, external = 0, distributor = 0, special = 0, wapu = 0;
     activeNodes.forEach(n => {
       if (n.nodeType === 'internal') internal++;
       else if (n.nodeType === 'external') external++;
       else if (n.nodeType === 'distributor') distributor++;
       else if (n.nodeType === 'special-external') special++;
+      else if (n.nodeType === 'wapu') wapu++;
     });
 
     let topSupplierId = '', maxOut = 0;
@@ -59,6 +60,7 @@ export const StatisticsPanel: React.FC = () => {
       external,
       distributor,
       special,
+      wapu,
       totalRelationships: activeEdges.length,
       topSupplier: { name: getNodeName(topSupplierId), count: maxOut },
       topCustomer: { name: getNodeName(topCustomerId), count: maxIn },
@@ -99,6 +101,10 @@ export const StatisticsPanel: React.FC = () => {
         <div className="breakdown-item">
           <span className="node-badge badge-special-external">SPEC</span>
           <span>{stats.special}</span>
+        </div>
+        <div className="breakdown-item">
+          <span className="node-badge badge-wapu">WAPU</span>
+          <span>{stats.wapu}</span>
         </div>
       </div>
 

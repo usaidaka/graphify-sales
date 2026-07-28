@@ -101,13 +101,13 @@ export const LayerManager: React.FC = () => {
 
       {/* Universe Switcher */}
       <div className="control-group">
-        <h3>Invoice Universe</h3>
+        <h3>Faktur Universe</h3>
         <div className="segmented-control">
           <button
             className={`segmented-btn ${state.universeMode === 'active' ? 'active' : ''}`}
             onClick={() => dispatch({ type: 'SET_UNIVERSE_MODE', payload: 'active' })}
           >
-            Faktur Active
+            Normal
           </button>
           <button
             className={`segmented-btn ${state.universeMode === 'cancelled-replaced' ? 'active' : ''}`}
@@ -159,4 +159,3 @@ export const LayerManager: React.FC = () => {
     </div>
   );
 };
-

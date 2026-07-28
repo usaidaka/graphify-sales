@@ -6,6 +6,15 @@ export function normalizeCompanyName(name: string): string {
   return String(name).trim();
 }
 
+export function stripLegalEntity(name: string): string {
+  if (!name) return '';
+  return String(name)
+    .trim()
+    .replace(/^(pt|cv|ud|tbk|nv|firma)\.?\s+/i, '')
+    .replace(/\s+(pt|cv|ud|tbk|nv|firma)\.?$/i, '')
+    .trim();
+}
+
 export type AliasInfo = {
   canonicalName: string;
   fullName: string;
@@ -19,16 +28,83 @@ export function buildAliasMap(companyMaster: InternalCompanyMaster[]): Map<strin
     const full = normalizeCompanyName(item.fullName);
     const abbr = normalizeCompanyName(item.abbreviation);
     const canonical = abbr || full;
-    
+    const info = { canonicalName: canonical, fullName: full };
+
     if (full) {
-      map.set(full.toLowerCase(), { canonicalName: canonical, fullName: full });
+      map.set(full.toLowerCase(), info);
+      const strippedFull = stripLegalEntity(full).toLowerCase();
+      if (strippedFull && !map.has(strippedFull)) {
+        map.set(strippedFull, info);
+      }
     }
     if (abbr) {
-      map.set(abbr.toLowerCase(), { canonicalName: canonical, fullName: full });
+      map.set(abbr.toLowerCase(), info);
+      const strippedAbbr = stripLegalEntity(abbr).toLowerCase();
+      if (strippedAbbr && !map.has(strippedAbbr)) {
+        map.set(strippedAbbr, info);
+      }
     }
   });
 
   return map;
+}
+
+export function isWapuEntity(name: string): string | boolean {
+  if (!name) return false;
+  const lower = name.toLowerCase().trim();
+  if (lower === 'wapu') return true;
+
+  const wapuKeywords = /\b(dinas|kementerian|kemendag|kemenkes|kemenkeu|kemendagri|kemendikbud|sudin|suku dinas|badan|satker|satuan kerja|pemerintah|pemprov|pemkab|pemkot|kantor pelayanan|kantor wilayah|kanwil|sekretariat|bappeda|bkd|diskes|disdik|dishub|disbun|disperindag|distamben|disnakertrans|polres|polda|kodam|korem|kodim)\b/i;
+  return wapuKeywords.test(lower);
+}
+
+export function extractLegalEntity(name: string): { prefix: string; cleanName: string } {
+  if (!name) return { prefix: '', cleanName: '' };
+  const trimmed = name.trim();
+  
+  const matchPrefix = trimmed.match(/^(pt|cv|ud|tbk|nv|firma)\.?\s+/i);
+  if (matchPrefix) {
+    const prefix = matchPrefix[1].toUpperCase();
+    const cleanName = trimmed.slice(matchPrefix[0].length).trim();
+    return { prefix, cleanName };
+  }
+
+  const matchSuffix = trimmed.match(/\s+(pt|cv|ud|tbk|nv|firma)\.?$/i);
+  if (matchSuffix) {
+    const prefix = matchSuffix[1].toUpperCase();
+    const cleanName = trimmed.slice(0, trimmed.length - matchSuffix[0].length).trim();
+    return { prefix, cleanName };
+  }
+
+  return { prefix: '', cleanName: trimmed };
+}
+
+export function generateCanonicalAbbreviation(rawName: string): { abbr: string; fullWithLegal: string } {
+  if (!rawName) return { abbr: '', fullWithLegal: '' };
+  const norm = rawName.trim();
+  
+  const { prefix, cleanName } = extractLegalEntity(norm);
+  const words = cleanName
+    .split(/[\s\-_]+/)
+    .filter(w => w.length > 0 && w.toLowerCase() !== 'dan' && w !== '&');
+
+  const effectivePrefix = prefix || (words.length >= 3 ? 'PT' : 'CV');
+  const fullWithLegal = prefix ? norm : `${effectivePrefix} ${cleanName}`;
+
+  if (cleanName.length <= 6 || words.length === 1) {
+    const singleWord = words[0] || cleanName;
+    const isShortAcronym = singleWord.length <= 5 || singleWord === singleWord.toUpperCase();
+    const cleanWord = isShortAcronym ? singleWord.toUpperCase() : singleWord;
+    return {
+      abbr: prefix ? `${prefix} ${cleanWord}` : cleanWord,
+      fullWithLegal
+    };
+  }
+
+  const initials = words.map(w => w[0].toUpperCase()).join('');
+  const abbr = `${effectivePrefix} ${initials}`;
+
+  return { abbr, fullWithLegal };
 }
 
 export function resolveCompany(name: string, aliasMap: Map<string, AliasInfo>): { key: string; displayName: string; fullName?: string } {
@@ -44,15 +120,58 @@ export function resolveCompany(name: string, aliasMap: Map<string, AliasInfo>): 
     };
   }
 
+  const stripped = stripLegalEntity(norm).toLowerCase();
+  if (stripped && aliasMap.has(stripped)) {
+    const info = aliasMap.get(stripped)!;
+    return {
+      key: info.canonicalName.toLowerCase(),
+      displayName: info.canonicalName,
+      fullName: info.fullName
+    };
+  }
+
+  if (isWapuEntity(norm)) {
+    return {
+      key: 'wapu',
+      displayName: 'WAPU',
+      fullName: 'WAPU (Wajib Pungut / Instansi Pemerintah)'
+    };
+  }
+
+  const generated = generateCanonicalAbbreviation(norm);
+
+  if (aliasMap.has(generated.abbr.toLowerCase())) {
+    const info = aliasMap.get(generated.abbr.toLowerCase())!;
+    return {
+      key: info.canonicalName.toLowerCase(),
+      displayName: info.canonicalName,
+      fullName: info.fullName
+    };
+  }
+
+  if (aliasMap.has(generated.fullWithLegal.toLowerCase())) {
+    const info = aliasMap.get(generated.fullWithLegal.toLowerCase())!;
+    return {
+      key: info.canonicalName.toLowerCase(),
+      displayName: info.canonicalName,
+      fullName: info.fullName
+    };
+  }
+
   return {
-    key: lower,
-    displayName: norm,
-    fullName: norm
+    key: generated.abbr.toLowerCase(),
+    displayName: generated.abbr,
+    fullName: generated.fullWithLegal
   };
 }
 
 export function classifyNode(name: string, internalSet: Set<string>): NodeType {
   const norm = normalizeCompanyName(name).toLowerCase();
+  const strippedNorm = stripLegalEntity(norm).toLowerCase();
+
+  if (norm === 'wapu' || norm.startsWith('wapu ') || isWapuEntity(name)) {
+    return 'wapu';
+  }
   
   // Special External companies per client specification:
   // PT SFI (PT Software Farmer Indonesia) and PT BCA (CV/PT Berkah Cahaya Abadi)
@@ -62,14 +181,18 @@ export function classifyNode(name: string, internalSet: Set<string>): NodeType {
     norm === 'cv berkah cahaya abadi' ||
     norm === 'pt berkah cahaya abadi' ||
     norm === 'pt bca' ||
-    norm === 'cv bca'
+    norm === 'cv bca' ||
+    strippedNorm === 'software farmer indonesia' ||
+    strippedNorm === 'berkah cahaya abadi'
   ) {
     return 'special-external';
   }
   
-  // Check against internal master set (case-insensitive)
+  // Check against internal master set (case-insensitive & stripped)
   for (const internalName of internalSet) {
-    if (normalizeCompanyName(internalName).toLowerCase() === norm) {
+    const normInternal = normalizeCompanyName(internalName).toLowerCase();
+    const strippedInternal = stripLegalEntity(normInternal).toLowerCase();
+    if (normInternal === norm || (strippedInternal && strippedInternal === strippedNorm)) {
       return 'internal';
     }
   }

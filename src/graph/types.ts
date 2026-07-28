@@ -1,4 +1,4 @@
-export type NodeType = 'internal' | 'external' | 'distributor' | 'special-external';
+export type NodeType = 'internal' | 'external' | 'distributor' | 'special-external' | 'wapu';
 
 export interface NodeData {
   id: string; // The canonical abbreviation or normalized company name

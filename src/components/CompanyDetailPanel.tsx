@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { useUI } from '../context/UIContext';
 import { useGraphData } from '../context/GraphDataContext';
-import { formatIDR } from '../utils/formatters';
+import { formatIDR, formatOmzetFaktur } from '../utils/formatters';
 import './RelationshipDetailPanel.css'; // Reusing styles
 import './CompanyDetailPanel.css';
 
@@ -79,6 +79,9 @@ export const CompanyDetailPanel: React.FC = () => {
     dispatch({ type: 'SET_FOCUS_NODE', payload: id });
   };
 
+  const top3Incoming = incoming.slice(0, 3);
+  const top3Outgoing = outgoing.slice(0, 3);
+
   return (
     <div className="detail-panel company-panel glass-panel">
       <div className="panel-header">
@@ -89,7 +92,12 @@ export const CompanyDetailPanel: React.FC = () => {
       <div className="panel-content">
         <div className="company-title-section">
           <div className="value primary-value company-title">{node.companyName}</div>
-          <span className={`node-badge badge-${node.nodeType}`}>{node.nodeType}</span>
+          {node.fullName && node.fullName !== node.companyName && (
+            <div className="company-fullname" style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px', fontWeight: 500 }}>
+              {node.fullName}
+            </div>
+          )}
+          <span className={`node-badge badge-${node.nodeType}`} style={{ marginTop: '4px' }}>{node.nodeType}</span>
         </div>
 
         <div className="divider"></div>
@@ -98,14 +106,18 @@ export const CompanyDetailPanel: React.FC = () => {
           <label>Activity Summary</label>
           <div className="stats-grid">
             <div className="stat-box">
-              <div className="stat-label">Total Invoices (As Seller)</div>
-              <div className="stat-value">{stats.totalInvoicesAsSeller}</div>
-              <div className="stat-subvalue">{formatIDR(stats.totalDPPAsSeller)}</div>
+              <div className="stat-label">Total Faktur (Sebagai Penjual)</div>
+              <div className="stat-value">{stats.totalInvoicesAsSeller} F</div>
+              <div className="stat-subvalue">
+                {formatIDR(stats.totalDPPAsSeller)} <span style={{ opacity: 0.85, fontSize: '0.85em' }}>({formatOmzetFaktur(stats.totalDPPAsSeller, stats.totalInvoicesAsSeller)})</span>
+              </div>
             </div>
             <div className="stat-box">
-              <div className="stat-label">Total Invoices (As Buyer)</div>
-              <div className="stat-value">{stats.totalInvoicesAsBuyer}</div>
-              <div className="stat-subvalue">{formatIDR(stats.totalDPPAsBuyer)}</div>
+              <div className="stat-label">Total Faktur (Sebagai Pembeli)</div>
+              <div className="stat-value">{stats.totalInvoicesAsBuyer} F</div>
+              <div className="stat-subvalue">
+                {formatIDR(stats.totalDPPAsBuyer)} <span style={{ opacity: 0.85, fontSize: '0.85em' }}>({formatOmzetFaktur(stats.totalDPPAsBuyer, stats.totalInvoicesAsBuyer)})</span>
+              </div>
             </div>
           </div>
         </div>
@@ -113,14 +125,14 @@ export const CompanyDetailPanel: React.FC = () => {
         <div className="divider"></div>
 
         <div className="data-group">
-          <label>Suppliers / Sellers (Urutan Terdekat #1 - {incoming.length})</label>
-          {incoming.length > 0 ? (
+          <label>Suppliers / Sellers (Top 3 Terdekat)</label>
+          {top3Incoming.length > 0 ? (
             <div className="connection-list">
-              {incoming.map((s, idx) => (
+              {top3Incoming.map((s, idx) => (
                 <div key={s.id} className="connection-item" onClick={() => handleNodeClick(s.id)}>
                   <span className="rank-tag">#{idx + 1}</span>
                   <span className="connection-name">{s.name}</span>
-                  <span className="connection-count">{formatIDR(s.dpp)}</span>
+                  <span className="connection-count" title={formatIDR(s.dpp)}>{formatOmzetFaktur(s.dpp, s.count)}</span>
                 </div>
               ))}
             </div>
@@ -130,14 +142,14 @@ export const CompanyDetailPanel: React.FC = () => {
         </div>
 
         <div className="data-group">
-          <label>Customers / Buyers (Urutan Terdekat #1 - {outgoing.length})</label>
-          {outgoing.length > 0 ? (
+          <label>Customers / Buyers (Top 3 Terdekat)</label>
+          {top3Outgoing.length > 0 ? (
             <div className="connection-list">
-              {outgoing.map((b, idx) => (
+              {top3Outgoing.map((b, idx) => (
                 <div key={b.id} className="connection-item" onClick={() => handleNodeClick(b.id)}>
                   <span className="rank-tag">#{idx + 1}</span>
                   <span className="connection-name">{b.name}</span>
-                  <span className="connection-count">{formatIDR(b.dpp)}</span>
+                  <span className="connection-count" title={formatIDR(b.dpp)}>{formatOmzetFaktur(b.dpp, b.count)}</span>
                 </div>
               ))}
             </div>

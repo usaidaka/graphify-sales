@@ -90,6 +90,12 @@
   border-radius: 50%;
 }
 
+.node-wapu {
+  background-color: #ec4899;
+  border-color: #be185d;
+  border-radius: 50%;
+}
+
 .node-import {
   background-color: #475569;
   border-color: #38bdf8;

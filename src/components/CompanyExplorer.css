@@ -99,6 +99,7 @@
 .badge-external { background: rgba(100, 116, 139, 0.2); color: #94a3b8; }
 .badge-distributor { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
 .badge-special-external { background: rgba(139, 92, 246, 0.2); color: #a78bfa; }
+.badge-wapu { background: rgba(236, 72, 153, 0.2); color: #f472b6; }
 
 .search-no-results {
   padding: 12px;

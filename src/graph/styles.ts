@@ -63,6 +63,15 @@ export const graphStyles: any = [
     }
   },
   {
+    selector: 'node[nodeType = "wapu"]',
+    style: {
+      'background-color': '#ec4899',
+      'border-color': '#be185d',
+      'border-width': 3,
+      'shape': 'ellipse'
+    }
+  },
+  {
     selector: 'edge',
     style: {
       'width': 'data(width)',

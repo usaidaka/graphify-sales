@@ -26,6 +26,10 @@ export const Legend: React.FC = () => {
             <span>Eksternal Khusus</span>
           </div>
           <div className="legend-item">
+            <div className="legend-shape node-wapu"></div>
+            <span>WAPU (Instansi Pemerintah)</span>
+          </div>
+          <div className="legend-item">
             <div className="legend-shape node-import"></div>
             <span>Transaksi Import</span>
           </div>
