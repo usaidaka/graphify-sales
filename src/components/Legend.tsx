@@ -52,21 +52,6 @@ export const Legend: React.FC = () => {
         </div>
       </div>
 
-      <div className="divider"></div>
-
-      <div className="legend-section">
-        <h4>Volume Omzet</h4>
-        <div className="legend-items legend-inline-grid">
-          <div className="legend-item">
-            <div className="legend-edge edge-thin"></div>
-            <span>Omzet Lebih Kecil</span>
-          </div>
-          <div className="legend-item">
-            <div className="legend-edge edge-thick"></div>
-            <span>Omzet Lebih Besar</span>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };

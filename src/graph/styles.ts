@@ -78,9 +78,14 @@ export const graphStyles: any = [
       'line-color': '#475569',
       'target-arrow-color': '#475569',
       'target-arrow-shape': 'triangle',
-      'curve-style': 'bezier',
-      'opacity': 0.55,
-      'arrow-scale': 1.1
+      // Orthogonal routing makes the dense overview easier to trace and avoids
+      // the visual impression of arbitrary curved/crooked connections.
+      'curve-style': 'taxi',
+      'taxi-direction': 'rightward',
+      'taxi-turn': '50%',
+      'taxi-turn-min-distance': 12,
+      'opacity': 0.7,
+      'arrow-scale': 0.9
     }
   },
   {
@@ -125,8 +130,9 @@ export const graphStyles: any = [
       'text-background-shape': 'roundrectangle',
       'line-color': '#059669',
       'target-arrow-color': '#059669',
+      'curve-style': 'straight',
       'opacity': 1,
-      'width': 4,
+      'width': 2,
       'z-index': 9
     }
   },
@@ -143,8 +149,9 @@ export const graphStyles: any = [
       'text-background-shape': 'roundrectangle',
       'line-color': '#ea580c',
       'target-arrow-color': '#ea580c',
+      'curve-style': 'straight',
       'opacity': 1,
-      'width': 4,
+      'width': 2,
       'z-index': 9
     }
   }

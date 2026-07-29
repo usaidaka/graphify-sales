@@ -1,18 +1,7 @@
 import cytoscape from 'cytoscape';
 import { NormalizedGraph, NodeData, EdgeData } from './types';
 
-function calculateEdgeWidth(totalDPP: number, invoiceCount: number): number {
-  const minWidth = 1.5;
-  const maxWidth = 7;
-
-  if (totalDPP > 0) {
-    const width = minWidth + Math.log10(totalDPP / 1_000_000 + 1) * 1.2;
-    return Math.max(minWidth, Math.min(maxWidth, width));
-  }
-  
-  const width = minWidth + Math.log10(invoiceCount + 1) * 1.5;
-  return Math.max(minWidth, Math.min(maxWidth, width));
-}
+const CLEAR_EDGE_WIDTH = 1.5;
 
 export function buildCytoscapeElements(graph: NormalizedGraph): cytoscape.ElementDefinition[] {
   const elements: cytoscape.ElementDefinition[] = [];
@@ -97,7 +86,9 @@ export function buildCytoscapeElements(graph: NormalizedGraph): cytoscape.Elemen
         statuses: edge.statuses || [],
         periods: edge.periods,
         isCancelledOrReplaced: !!edge.isCancelledOrReplaced,
-        width: calculateEdgeWidth(edge.totalDPP, edge.invoiceCount),
+        // Keep the overview readable. Transaction volume remains available in
+        // the detail panels and focus ranking, but no longer makes lines bulky.
+        width: CLEAR_EDGE_WIDTH,
         // proximityScore: 1.0 = major partner (closest), 0.0 = minor partner (farthest)
         proximityScore
       }

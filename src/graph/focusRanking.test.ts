@@ -4,6 +4,7 @@ import {
   DEFAULT_FOCUS_SORT_METRIC,
   isFocusSortVisible,
   metricValue,
+  positionFocusNeighbors,
   rankNeighborRadii,
 } from './focusRanking';
 
@@ -50,9 +51,24 @@ describe('Focus Mode neighbor ranking', () => {
     const totals = aggregateNeighborMetrics('focus', edges, 'invoice-count');
 
     expect(rankNeighborRadii(totals)).toEqual([
-      { neighborId: 'b', value: 8, radius: 130 },
-      { neighborId: 'c', value: 8, radius: 130 },
-      { neighborId: 'a', value: 5, radius: 190 },
+      { neighborId: 'b', value: 8, radius: 92 },
+      { neighborId: 'c', value: 8, radius: 92 },
+      { neighborId: 'a', value: 5, radius: 106 },
     ]);
+  });
+
+  it('keeps focus positions compact and separates equal-radius neighbors', () => {
+    const ranked = rankNeighborRadii(new Map([
+      ['a', 30],
+      ['b', 30],
+      ['c', 20],
+      ['d', 10],
+    ]));
+    const positions = positionFocusNeighbors(ranked, { x: 100, y: 100 });
+
+    expect(Math.max(...positions.map(({ x, y }) => Math.hypot(x - 100, y - 100))))
+      .toBeLessThanOrEqual(190);
+    expect(new Set(positions.map(({ x, y }) => `${x.toFixed(2)},${y.toFixed(2)}`)).size)
+      .toBe(positions.length);
   });
 });

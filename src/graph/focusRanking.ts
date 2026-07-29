@@ -15,6 +15,11 @@ export interface RankedNeighbor {
   radius: number;
 }
 
+export interface FocusPosition extends RankedNeighbor {
+  x: number;
+  y: number;
+}
+
 export function isFocusSortVisible(focusedNodeId: string | null): boolean {
   return focusedNodeId !== null;
 }
@@ -44,8 +49,9 @@ export function aggregateNeighborMetrics(
 
 export function rankNeighborRadii(
   totals: Map<string, number>,
-  minRadius = 130,
-  gapPerRank = 60
+  minRadius = 92,
+  gapPerRank = 14,
+  maxRadius = 190
 ): RankedNeighbor[] {
   const sorted = Array.from(totals, ([neighborId, value]) => ({ neighborId, value }))
     .sort((a, b) => b.value - a.value || a.neighborId.localeCompare(b.neighborId));
@@ -55,9 +61,29 @@ export function rankNeighborRadii(
 
   return sorted.map((neighbor) => {
     if (previousValue !== undefined && neighbor.value < previousValue) {
-      radius += gapPerRank;
+      radius = Math.min(maxRadius, radius + gapPerRank);
     }
     previousValue = neighbor.value;
     return { ...neighbor, radius };
+  });
+}
+
+/**
+ * Place ranked neighbors on a compact golden-angle spiral. Rank controls
+ * distance, while angular distribution avoids nodes stacking along one ray.
+ */
+export function positionFocusNeighbors(
+  neighbors: RankedNeighbor[],
+  center: { x: number; y: number }
+): FocusPosition[] {
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+
+  return neighbors.map((neighbor, index) => {
+    const angle = index * goldenAngle - Math.PI / 2;
+    return {
+      ...neighbor,
+      x: center.x + neighbor.radius * Math.cos(angle),
+      y: center.y + neighbor.radius * Math.sin(angle),
+    };
   });
 }

@@ -8,6 +8,7 @@ import { runLayout } from '../graph/layout';
 import {
   aggregateNeighborMetrics,
   isFocusSortVisible,
+  positionFocusNeighbors,
   rankNeighborRadii,
 } from '../graph/focusRanking';
 import './NetworkGraph.css';
@@ -66,10 +67,18 @@ export const NetworkGraph: React.FC = () => {
       });
     }
 
-    // Run fcose organic layout with compact spacing if internal-only
-    const isCompact = state.scopeFilter === 'internal-only';
+    // A single Dagre rank becomes extremely tall. Internal-only uses an
+    // aspect-ratio-aware grid so every company is immediately visible, while
+    // the external overview retains its relationship-oriented organic layout.
+    const isInternalOnly = state.scopeFilter === 'internal-only';
+    const layoutName = isInternalOnly ? 'grid' : 'fcose';
     setLayoutRunning(true);
-    runLayout(cyRef.current, 'fcose', isCompact).then(() => {
+    runLayout(cyRef.current, layoutName, true).then(() => {
+      const cy = cyRef.current;
+      if (cy) {
+        cy.resize();
+        cy.fit(cy.elements(':visible'), 36);
+      }
       setLayoutRunning(false);
     });
 
@@ -292,20 +301,15 @@ export const NetworkGraph: React.FC = () => {
         const neighborData = rankNeighborRadii(totals);
         if (neighborData.length === 0) return;
 
-        const count = neighborData.length;
         const focusedPos = { x: tNode.position('x'), y: tNode.position('y') };
-        const angleStep = (2 * Math.PI) / count;
+        const positionedNeighbors = positionFocusNeighbors(neighborData, focusedPos);
 
-        neighborData.forEach(({ neighborId, radius }, idx) => {
+        positionedNeighbors.forEach(({ neighborId, x, y }) => {
           const nodeEl = cyRef.current!.getElementById(neighborId);
           if (nodeEl.length === 0) return;
           nodeEl.stop();
-          const angle = idx * angleStep - Math.PI / 2; // start from top (12 o'clock)
           nodeEl.animate({
-            position: {
-              x: focusedPos.x + radius * Math.cos(angle),
-              y: focusedPos.y + radius * Math.sin(angle),
-            },
+            position: { x, y },
             duration: 480
           });
         });
@@ -316,7 +320,7 @@ export const NetworkGraph: React.FC = () => {
           if (!cyRef.current) return;
           const updatedTarget = cyRef.current.getElementById(focusedNodeId);
           const neighborhood = updatedTarget.neighborhood('node').add(updatedTarget);
-          cyRef.current.animate({ fit: { eles: neighborhood, padding: 60 }, duration: 350 });
+          cyRef.current.animate({ fit: { eles: neighborhood, padding: 44 }, duration: 350 });
         }, 540);
       });
 
