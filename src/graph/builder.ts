@@ -1,5 +1,6 @@
 import cytoscape from 'cytoscape';
 import { NormalizedGraph, NodeData, EdgeData } from './types';
+import type { SfiTransactionOverview } from './sfiTransaction';
 
 const CLEAR_EDGE_WIDTH = 1.5;
 
@@ -96,6 +97,60 @@ export function buildCytoscapeElements(graph: NormalizedGraph): cytoscape.Elemen
   });
 
   return elements;
+}
+
+/**
+ * Materialize branch-specific Cytoscape instances without duplicating the
+ * normalized business graph. Every element retains its canonical identifier
+ * for selection, detail panels, and aggregate statistics.
+ */
+export function buildSfiCytoscapeElements(
+  graph: NormalizedGraph,
+  overview: SfiTransactionOverview
+): cytoscape.ElementDefinition[] {
+  const canonicalElements = buildCytoscapeElements(graph);
+  const canonicalNodes = new Map(
+    canonicalElements
+      .filter((element) => element.group === 'nodes')
+      .map((element) => [String(element.data?.id), element])
+  );
+  const canonicalEdges = new Map(
+    canonicalElements
+      .filter((element) => element.group === 'edges')
+      .map((element) => [String(element.data?.id), element])
+  );
+
+  const nodes = overview.nodeInstances.flatMap((instance) => {
+    const canonical = canonicalNodes.get(instance.canonicalCompanyId);
+    if (!canonical?.data) return [];
+    return [{
+      group: 'nodes' as const,
+      data: {
+        ...canonical.data,
+        id: instance.id,
+        canonicalCompanyId: instance.canonicalCompanyId,
+        visualBranch: instance.branch,
+        hierarchyLevel: instance.level,
+      },
+    }];
+  });
+  const edges = overview.edgeInstances.flatMap((instance) => {
+    const canonical = canonicalEdges.get(instance.canonicalEdgeId);
+    if (!canonical?.data) return [];
+    return [{
+      group: 'edges' as const,
+      data: {
+        ...canonical.data,
+        id: instance.id,
+        source: instance.source,
+        target: instance.target,
+        canonicalEdgeId: instance.canonicalEdgeId,
+        visualBranch: instance.branch,
+      },
+    }];
+  });
+
+  return [...nodes, ...edges];
 }
 
 

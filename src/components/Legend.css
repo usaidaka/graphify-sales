@@ -103,6 +103,24 @@
   border-radius: 50%;
 }
 
+.node-sfi {
+  background-color: #2563eb;
+  border-color: #93c5fd;
+  transform: rotate(45deg);
+}
+
+.node-principal {
+  background-color: #475569;
+  border: 4px double #22d3ee;
+  border-radius: 50%;
+}
+
+.node-replacement {
+  background-color: #475569;
+  border: 3px dashed #facc15;
+  border-radius: 50%;
+}
+
 .legend-edge {
   height: 2px;
   background-color: #475569;

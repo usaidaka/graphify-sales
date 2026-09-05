@@ -1,5 +1,6 @@
 import { ParsedWorkbook, RawTransactionRow, InternalCompanyMaster } from '../parsers/types';
 import { NodeType, NodeData, EdgeData, NormalizedGraph } from './types';
+import { isSfiNode } from './sfiTransaction';
 
 export function normalizeCompanyName(name: string): string {
   if (!name) return '';
@@ -351,7 +352,8 @@ export function normalize(
 
   // Filter by Scope
   if (scopeFilter === 'internal-only') {
-    nodes = nodes.filter(n => n.nodeType === 'internal');
+    // SFI remains the mandatory anchor even under an internal-only scope.
+    nodes = nodes.filter(n => n.nodeType === 'internal' || isSfiNode(n));
     const internalKeys = new Set(nodes.map(n => n.id));
     edges = edges.filter(e => internalKeys.has(e.source) && internalKeys.has(e.target));
   }

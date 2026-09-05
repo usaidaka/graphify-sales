@@ -1,5 +1,3 @@
-import cytoscape from 'cytoscape';
-
 export const graphStyles: any = [
   {
     selector: 'node',
@@ -153,6 +151,88 @@ export const graphStyles: any = [
       'opacity': 1,
       'width': 2,
       'z-index': 9
+    }
+  },
+  {
+    selector: 'node.sfi-overview-node',
+    style: {
+      'width': 28,
+      'height': 28,
+      'border-width': 2
+    }
+  },
+  {
+    selector: 'node.sfi-center',
+    style: {
+      'width': 44,
+      'height': 44,
+      'shape': 'diamond',
+      'background-color': '#2563eb',
+      'border-color': '#93c5fd',
+      'border-width': 4,
+      'font-size': '12px',
+      'font-weight': 'bold',
+      'z-index': 20
+    }
+  },
+  {
+    selector: 'node.principal-hub',
+    style: {
+      'border-color': '#22d3ee',
+      'border-width': 4,
+      'border-style': 'double'
+    }
+  },
+  {
+    selector: 'node.replacement-hub',
+    style: {
+      'border-color': '#facc15',
+      'border-width': 4,
+      'border-style': 'dashed'
+    }
+  },
+  {
+    selector: 'edge.sfi-edge',
+    style: {
+      'width': 1.5,
+      'curve-style': 'straight',
+      'opacity': 0.72
+    }
+  },
+  {
+    selector: 'edge.sfi-edge.value-ranked',
+    style: {
+      'label': 'data(rankLabel)',
+      'font-size': '9px',
+      'font-weight': 'bold',
+      'color': '#e2e8f0',
+      'text-background-color': '#0f172a',
+      'text-background-opacity': 0.88,
+      'text-background-padding': '3px',
+      'text-background-shape': 'roundrectangle',
+      'text-rotation': 'autorotate'
+    }
+  },
+  {
+    selector: 'edge.sfi-edge.highlighted',
+    style: {
+      'width': 2,
+      'opacity': 1,
+      'z-index': 10
+    }
+  },
+  // Keep focus dimming last so role-specific SFI styles cannot restore the
+  // opacity of unrelated lines or their arrow heads.
+  {
+    selector: 'node.dimmed',
+    style: {
+      'opacity': 0.1
+    }
+  },
+  {
+    selector: 'edge.dimmed',
+    style: {
+      'opacity': 0.06
     }
   }
 ];

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useReducer, ReactNode } from 'react';
 import { DEFAULT_FOCUS_SORT_METRIC } from '../graph/focusRanking';
+import type { SfiLayoutMode, TransactionView } from '../graph/sfiTransaction';
 
 export type DatasetName = 'FM' | 'FK' | 'FM_CRTX' | 'FK_CRTX';
 export type ScopeFilter = 'with-external' | 'internal-only';
@@ -17,7 +18,10 @@ export interface UIState {
   focusSortMetric: FocusSortMetric;
   yearFrom: PeriodFilter;
   yearTo: PeriodFilter;
+  sameYear: boolean;
   selectedMonth: PeriodFilter;
+  transactionView: TransactionView;
+  sfiLayoutMode: SfiLayoutMode;
 }
 
 type UIAction =
@@ -32,7 +36,10 @@ type UIAction =
   | { type: 'SET_FOCUS_SORT_METRIC'; payload: FocusSortMetric }
   | { type: 'SET_YEAR_FROM'; payload: PeriodFilter }
   | { type: 'SET_YEAR_TO'; payload: PeriodFilter }
-  | { type: 'SET_MONTH_FILTER'; payload: PeriodFilter };
+  | { type: 'SET_SAME_YEAR'; payload: boolean }
+  | { type: 'SET_MONTH_FILTER'; payload: PeriodFilter }
+  | { type: 'SET_TRANSACTION_VIEW'; payload: TransactionView }
+  | { type: 'SET_SFI_LAYOUT_MODE'; payload: SfiLayoutMode };
 
 const initialState: UIState = {
   activeLayers: new Set(['FM', 'FK', 'FM_CRTX', 'FK_CRTX']),
@@ -44,7 +51,10 @@ const initialState: UIState = {
   focusSortMetric: DEFAULT_FOCUS_SORT_METRIC,
   yearFrom: 'all',
   yearTo: 'all',
-  selectedMonth: 'all'
+  sameYear: false,
+  selectedMonth: 'all',
+  transactionView: 'sales',
+  sfiLayoutMode: 'hierarchy'
 };
 
 function uiReducer(state: UIState, action: UIAction): UIState {
@@ -79,11 +89,13 @@ function uiReducer(state: UIState, action: UIAction): UIState {
         ...state,
         yearFrom: action.payload,
         yearTo:
-          action.payload !== 'all' &&
-          state.yearTo !== 'all' &&
-          action.payload > state.yearTo
+          state.sameYear
             ? action.payload
-            : state.yearTo,
+            : action.payload !== 'all' &&
+                state.yearTo !== 'all' &&
+                action.payload > state.yearTo
+              ? action.payload
+              : state.yearTo,
         focusedNodeId: null,
         selectedEdgeId: null,
       };
@@ -92,18 +104,45 @@ function uiReducer(state: UIState, action: UIAction): UIState {
         ...state,
         yearTo: action.payload,
         yearFrom:
-          action.payload !== 'all' &&
-          state.yearFrom !== 'all' &&
-          action.payload < state.yearFrom
+          state.sameYear
             ? action.payload
-            : state.yearFrom,
+            : action.payload !== 'all' &&
+                state.yearFrom !== 'all' &&
+                action.payload < state.yearFrom
+              ? action.payload
+              : state.yearFrom,
         focusedNodeId: null,
         selectedEdgeId: null,
       };
+    case 'SET_SAME_YEAR': {
+      const selectedYear = state.yearFrom !== 'all' ? state.yearFrom : state.yearTo;
+      return {
+        ...state,
+        sameYear: action.payload,
+        yearFrom: action.payload ? selectedYear : state.yearFrom,
+        yearTo: action.payload ? selectedYear : state.yearTo,
+        focusedNodeId: null,
+        selectedEdgeId: null,
+      };
+    }
     case 'SET_MONTH_FILTER':
       return {
         ...state,
         selectedMonth: action.payload,
+        focusedNodeId: null,
+        selectedEdgeId: null,
+      };
+    case 'SET_TRANSACTION_VIEW':
+      return {
+        ...state,
+        transactionView: action.payload,
+        focusedNodeId: null,
+        selectedEdgeId: null,
+      };
+    case 'SET_SFI_LAYOUT_MODE':
+      return {
+        ...state,
+        sfiLayoutMode: action.payload,
         focusedNodeId: null,
         selectedEdgeId: null,
       };

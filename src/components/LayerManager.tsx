@@ -35,6 +35,8 @@ export const LayerManager: React.FC = () => {
   const yearRangeLabel =
     state.yearFrom === 'all' && state.yearTo === 'all'
       ? 'Seluruh tahun'
+      : state.sameYear && state.yearFrom !== 'all'
+        ? `${state.yearFrom}`
       : state.yearFrom === 'all'
         ? `Sampai ${state.yearTo}`
         : state.yearTo === 'all'
@@ -45,9 +47,21 @@ export const LayerManager: React.FC = () => {
     <div className="layer-manager glass-panel">
       <div className="control-group">
         <h3>Periode Transaksi</h3>
-        <div className="period-filter-grid year-range-grid">
+        <label className="same-year-toggle">
+          <input
+            type="checkbox"
+            checked={state.sameYear}
+            onChange={(event) => dispatch({
+              type: 'SET_SAME_YEAR',
+              payload: event.target.checked,
+            })}
+          />
+          <span>Di tahun yang sama</span>
+        </label>
+
+        <div className={`period-filter-grid year-range-grid ${state.sameYear ? 'same-year' : ''}`}>
           <label className="period-filter">
-            <span>Dari Tahun</span>
+            <span>{state.sameYear ? 'Tahun' : 'Dari Tahun'}</span>
             <select
               value={state.yearFrom}
               onChange={(event) => dispatch({
@@ -55,28 +69,30 @@ export const LayerManager: React.FC = () => {
                 payload: event.target.value === 'all' ? 'all' : Number(event.target.value),
               })}
             >
-              <option value="all">Awal</option>
+              <option value="all">{state.sameYear ? 'Semua Tahun' : 'Awal'}</option>
               {[...availableYears].reverse().map(year => (
                 <option key={year} value={year}>{year}</option>
               ))}
             </select>
           </label>
 
-          <label className="period-filter">
-            <span>Sampai Tahun</span>
-            <select
-              value={state.yearTo}
-              onChange={(event) => dispatch({
-                type: 'SET_YEAR_TO',
-                payload: event.target.value === 'all' ? 'all' : Number(event.target.value),
-              })}
-            >
-              <option value="all">Terakhir</option>
-              {[...availableYears].reverse().map(year => (
-                <option key={year} value={year}>{year}</option>
-              ))}
-            </select>
-          </label>
+          {!state.sameYear && (
+            <label className="period-filter">
+              <span>Sampai Tahun</span>
+              <select
+                value={state.yearTo}
+                onChange={(event) => dispatch({
+                  type: 'SET_YEAR_TO',
+                  payload: event.target.value === 'all' ? 'all' : Number(event.target.value),
+                })}
+              >
+                <option value="all">Terakhir</option>
+                {[...availableYears].reverse().map(year => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
         <span className="period-range-summary">{yearRangeLabel}</span>
 

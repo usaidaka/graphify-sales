@@ -26,6 +26,46 @@
   z-index: 1;
 }
 
+.sfi-sector-guide {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.sfi-sector-outer,
+.sfi-sector-inner {
+  fill: none;
+  stroke: rgba(148, 163, 184, 0.72);
+  stroke-width: 2;
+}
+
+.sfi-sector-inner {
+  fill: rgba(15, 23, 42, 0.48);
+  stroke: rgba(147, 197, 253, 0.9);
+  stroke-width: 2.5;
+}
+
+.sfi-sector-divider {
+  stroke: rgba(148, 163, 184, 0.78);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.sfi-sector-label {
+  fill: rgba(226, 232, 240, 0.9);
+  font: 700 11px Inter, sans-serif;
+  letter-spacing: 0.08em;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  paint-order: stroke;
+  stroke: rgba(15, 17, 21, 0.92);
+  stroke-width: 3px;
+}
+
 .loading-overlay {
   position: absolute;
   top: 50%;
@@ -101,6 +141,17 @@
   border-color: var(--accent-hover);
 }
 
+.graph-controls button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.graph-controls button:disabled:hover {
+  background: var(--bg-panel);
+  color: var(--text-main);
+  border-color: var(--border-color);
+}
+
 .graph-empty-state {
   position: absolute;
   top: 50%;
@@ -123,6 +174,92 @@
 .graph-empty-state span {
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.sfi-view-controls {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  z-index: 15;
+  display: flex;
+  gap: 14px;
+  padding: 10px 12px;
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+
+.sfi-control-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sfi-control-group > span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sfi-segmented-control {
+  display: flex;
+  padding: 3px;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.sfi-segmented-control button {
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sfi-segmented-control button:hover {
+  color: var(--text-main);
+}
+
+.sfi-segmented-control button.active {
+  background: var(--accent-color);
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(37, 99, 235, 0.25);
+}
+
+.sfi-segmented-control button:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.sfi-overview-hint {
+  position: absolute;
+  right: 24px;
+  top: 24px;
+  z-index: 10;
+  display: flex;
+  min-width: 190px;
+  padding: 12px 14px;
+  flex-direction: column;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.sfi-overview-hint strong {
+  color: var(--text-main);
+  font-size: 12px;
+}
+
+.sfi-overview-hint span,
+.sfi-overview-hint small {
+  color: var(--text-muted);
+  font-size: 10px;
 }
 
 .focus-sort-control {
@@ -157,6 +294,26 @@
 }
 
 @media (max-width: 720px) {
+  .sfi-view-controls {
+    top: 10px;
+    width: calc(100% - 24px);
+    max-width: 440px;
+    gap: 8px;
+    flex-direction: column;
+  }
+
+  .sfi-control-group {
+    justify-content: space-between;
+  }
+
+  .sfi-overview-hint {
+    top: auto;
+    right: auto;
+    bottom: 14px;
+    left: 14px;
+    min-width: 0;
+  }
+
   .focus-sort-control {
     top: 12px;
     max-width: calc(100% - 24px);

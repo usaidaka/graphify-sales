@@ -39,6 +39,26 @@ export const Legend: React.FC = () => {
       <div className="divider"></div>
 
       <div className="legend-section">
+        <h4>Peran pada Visual SFI</h4>
+        <div className="legend-items legend-node-grid">
+          <div className="legend-item">
+            <div className="legend-shape node-sfi"></div>
+            <span>Pusat SFI</span>
+          </div>
+          <div className="legend-item">
+            <div className="legend-shape node-principal"></div>
+            <span>Principal Aktif</span>
+          </div>
+          <div className="legend-item">
+            <div className="legend-shape node-replacement"></div>
+            <span>Hub Pengganti</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="divider"></div>
+
+      <div className="legend-section">
         <h4>Arah Transaksi</h4>
         <div className="legend-items legend-inline-grid">
           <div className="legend-item">
