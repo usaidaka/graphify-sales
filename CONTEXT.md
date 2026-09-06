@@ -17,11 +17,11 @@ The representation of a company within one Direct Principal's distribution path.
 _Avoid_: Duplicate company
 
 **Effective Distribution Depth**:
-The farthest consistent downstream position proven by transaction relationships within a branch. A direct shortcut does not pull a company inward when another relationship proves a longer downstream chain.
+The farthest consistent downstream position established by transaction relationships and sibling-cohort ordering within a branch. A direct shortcut does not pull a company inward when the cohort establishes a downstream tier.
 _Avoid_: Shortest distance
 
 **Equivalent Siblings**:
-Companies supplied by the same upstream company with no transaction relationship proving that one is downstream of the other.
+Companies assigned to the same tier under a shared upstream company. When one sibling supplies another, sibling suppliers form the upstream tier and all non-supplier siblings align on the downstream tier.
 _Avoid_: Permanently equal level
 
 **Cycle Group**:

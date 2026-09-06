@@ -165,6 +165,46 @@ function calculateEffectiveLevels(
     }
   }
 
+  const actualChildren = new Map<string, Set<string>>();
+  reachable.forEach((parentId) => {
+    const children = new Set<string>();
+    for (const edge of adjacency.get(parentId) ?? []) {
+      const { child } = traversalEndpoints(edge, view);
+      if (child === rootId || blockedNodeIds.has(child) || !reachable.has(child)) continue;
+      children.add(child);
+    }
+    actualChildren.set(parentId, children);
+  });
+  const hierarchyChildren = new Map(
+    [...actualChildren].map(([parentId, children]) => [parentId, new Set(children)])
+  );
+
+  // A transaction between siblings establishes an upstream tier for their
+  // whole cohort. Siblings that do not supply another member align with the
+  // cohort's downstream tier, even when their only actual edge is the shortcut
+  // from the shared parent. These inferred links affect placement only; the UI
+  // continues to render actual transaction edges exclusively.
+  reachable.forEach((parentId) => {
+    const siblings = [...(actualChildren.get(parentId) ?? [])];
+    if (siblings.length < 2) return;
+    const siblingSet = new Set(siblings);
+    const upstreamSiblings = siblings.filter((siblingId) =>
+      [...(actualChildren.get(siblingId) ?? [])]
+        .some((childId) => siblingSet.has(childId))
+    );
+    if (upstreamSiblings.length === 0) return;
+    const downstreamSiblings = siblings.filter((siblingId) =>
+      ![...(actualChildren.get(siblingId) ?? [])]
+        .some((childId) => siblingSet.has(childId))
+    );
+    upstreamSiblings.forEach((upstreamId) => {
+      const children = hierarchyChildren.get(upstreamId)!;
+      downstreamSiblings.forEach((downstreamId) => {
+        if (upstreamId !== downstreamId) children.add(downstreamId);
+      });
+    });
+  });
+
   let nextIndex = 0;
   const indexByNode = new Map<string, number>();
   const lowLinkByNode = new Map<string, number>();
@@ -180,9 +220,7 @@ function calculateEffectiveLevels(
     stack.push(nodeId);
     onStack.add(nodeId);
 
-    for (const edge of adjacency.get(nodeId) ?? []) {
-      const { child } = traversalEndpoints(edge, view);
-      if (child === rootId || blockedNodeIds.has(child) || !reachable.has(child)) continue;
+    for (const child of hierarchyChildren.get(nodeId) ?? []) {
       if (!indexByNode.has(child)) {
         connect(child);
         lowLinkByNode.set(
@@ -219,9 +257,7 @@ function calculateEffectiveLevels(
   }
   reachable.forEach((parentId) => {
     const parentComponent = componentByNode.get(parentId)!;
-    for (const edge of adjacency.get(parentId) ?? []) {
-      const { child } = traversalEndpoints(edge, view);
-      if (child === rootId || blockedNodeIds.has(child) || !reachable.has(child)) continue;
+    for (const child of hierarchyChildren.get(parentId) ?? []) {
       const childComponent = componentByNode.get(child)!;
       if (parentComponent === childComponent) continue;
       const targets = outgoingComponents.get(parentComponent)!;
