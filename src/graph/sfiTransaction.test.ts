@@ -68,6 +68,25 @@ function distance(
   return Math.hypot(end!.x - start!.x, end!.y - start!.y)
 }
 
+function segmentsCross(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  c: { x: number; y: number },
+  d: { x: number; y: number },
+) {
+  const orientation = (
+    p: { x: number; y: number },
+    q: { x: number; y: number },
+    r: { x: number; y: number },
+  ) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
+
+  const abC = orientation(a, b, c)
+  const abD = orientation(a, b, d)
+  const cdA = orientation(c, d, a)
+  const cdB = orientation(c, d, b)
+  return abC * abD < 0 && cdA * cdB < 0
+}
+
 describe('buildSfiTransactionOverview', () => {
   it('resolves SFI from company identity rather than node type', () => {
     const result = overview([edge('sfi-x', 'sfi', 'x', 100)])
@@ -104,7 +123,93 @@ describe('buildSfiTransactionOverview', () => {
     expect(result.canonicalVisibleEdgeIds).toEqual(new Set(['a-ldn', 'ldn-sfi']))
   })
 
-  it('fills missing principal slots with the largest direct counterparts', () => {
+  it('pushes a shared child outward when one sibling supplies the other', () => {
+    const data: NormalizedGraph = {
+      nodes: [
+        ...nodes,
+        { id: 'slis', companyName: 'CV SLIS', nodeType: 'internal' },
+        { id: 'ikb', companyName: 'CV IKB', nodeType: 'internal' },
+      ],
+      edges: [
+        edge('sfi-slis', 'sfi', 'slis', 100),
+        edge('slis-ikb', 'slis', 'ikb', 90),
+        edge('slis-lj', 'slis', 'lj', 80),
+        edge('ikb-lj', 'ikb', 'lj', 70),
+      ],
+    }
+    const result = createSfiTransactionOverview(data, 'sales')
+    const slisBranch = result.branchSlots.find(({ hubNodeId }) => hubNodeId === 'slis')!.principal
+    const ikb = instancesFor(result, 'ikb', slisBranch)[0]
+    const lj = instancesFor(result, 'lj', slisBranch)[0]
+
+    expect(ikb.level).toBe(2)
+    expect(lj.level).toBe(3)
+    expect(result.parentByNode.get(lj.id)).toBe(ikb.id)
+  })
+
+  it('keeps a direct principal branch while placing its occurrence downstream elsewhere', () => {
+    const result = overview([
+      edge('sfi-a', 'sfi', 'a', 100),
+      edge('sfi-b', 'sfi', 'b', 90),
+      edge('a-b', 'a', 'b', 80),
+    ])
+    const aBranch = result.branchSlots.find(({ hubNodeId }) => hubNodeId === 'a')!.principal
+    const bBranch = result.branchSlots.find(({ hubNodeId }) => hubNodeId === 'b')!.principal
+    const bUnderA = instancesFor(result, 'b', aBranch)[0]
+    const bDirect = instancesFor(result, 'b', bBranch)[0]
+
+    expect(bUnderA.level).toBe(2)
+    expect(bDirect.level).toBe(1)
+    expect(result.edgeInstances.some(
+      ({ canonicalEdgeId, source, target }) =>
+        canonicalEdgeId === 'sfi-b'
+        && source === result.sfiInstanceId
+        && target === bDirect.id,
+    )).toBe(true)
+  })
+
+  it('keeps siblings at the same level when neither supplies the other', () => {
+    const data: NormalizedGraph = {
+      nodes: [
+        ...nodes,
+        { id: 'slis', companyName: 'CV SLIS', nodeType: 'internal' },
+        { id: 'ikb', companyName: 'CV IKB', nodeType: 'internal' },
+      ],
+      edges: [
+        edge('sfi-slis', 'sfi', 'slis', 100),
+        edge('slis-ikb', 'slis', 'ikb', 90),
+        edge('slis-lj', 'slis', 'lj', 80),
+      ],
+    }
+    const result = createSfiTransactionOverview(data, 'sales')
+    const branch = result.branchSlots.find(({ hubNodeId }) => hubNodeId === 'slis')!.principal
+
+    expect(instancesFor(result, 'ikb', branch)[0].level).toBe(2)
+    expect(instancesFor(result, 'lj', branch)[0].level).toBe(2)
+  })
+
+  it('applies effective downstream depth in the purchases view', () => {
+    const data: NormalizedGraph = {
+      nodes: [
+        ...nodes,
+        { id: 'slis', companyName: 'CV SLIS', nodeType: 'internal' },
+        { id: 'ikb', companyName: 'CV IKB', nodeType: 'internal' },
+      ],
+      edges: [
+        edge('slis-sfi', 'slis', 'sfi', 100),
+        edge('ikb-slis', 'ikb', 'slis', 90),
+        edge('lj-slis', 'lj', 'slis', 80),
+        edge('lj-ikb', 'lj', 'ikb', 70),
+      ],
+    }
+    const result = createSfiTransactionOverview(data, 'purchases')
+    const branch = result.branchSlots.find(({ hubNodeId }) => hubNodeId === 'slis')!.principal
+
+    expect(instancesFor(result, 'ikb', branch)[0].level).toBe(2)
+    expect(instancesFor(result, 'lj', branch)[0].level).toBe(3)
+  })
+
+  it('creates a principal branch for every direct SFI counterpart', () => {
     const result = overview([
       edge('sfi-x', 'sfi', 'x', 400),
       edge('sfi-ldn', 'sfi', 'ldn', 300),
@@ -112,14 +217,14 @@ describe('buildSfiTransactionOverview', () => {
       edge('sfi-b', 'sfi', 'b', 100),
     ])
 
-    expect(result.branchSlots.map((slot) => slot.hubNodeId)).toEqual(['x', 'ldn', 'a', 'b'])
-    expect(result.branchSlots.map((slot) => slot.isReplacement)).toEqual([true, false, true, true])
+    expect(result.branchSlots.map((slot) => slot.hubNodeId)).toEqual(['ldn', 'x', 'a', 'b'])
+    expect(result.branchSlots.map((slot) => slot.isReplacement)).toEqual([false, false, false, false])
   })
 
-  it('leaves a principal slot empty when no replacement exists', () => {
+  it('creates only the principal branches present in direct SFI data', () => {
     const result = overview([edge('sfi-ldn', 'sfi', 'ldn', 100)])
 
-    expect(result.branchSlots.map((slot) => slot.hubNodeId)).toEqual([null, 'ldn', null, null])
+    expect(result.branchSlots.map((slot) => slot.hubNodeId)).toEqual(['ldn'])
     expect(result.canonicalVisibleNodeIds).toEqual(new Set(['sfi', 'ldn']))
   })
 
@@ -176,6 +281,37 @@ describe('buildSfiTransactionOverview', () => {
     )
   })
 
+  it('orders nodes using non-tree relationships when that avoids an edge crossing', () => {
+    const data: NormalizedGraph = {
+      nodes: [
+        ...nodes,
+        { id: 'y', companyName: 'Company Y', nodeType: 'external' },
+      ],
+      edges: [
+        edge('sfi-ldn', 'sfi', 'ldn', 100),
+        edge('ldn-a', 'ldn', 'a', 100),
+        edge('ldn-b', 'ldn', 'b', 90),
+        edge('b-x', 'b', 'x', 100),
+        edge('b-y', 'b', 'y', 90),
+        edge('a-y', 'a', 'y', 80),
+      ],
+    }
+    const result = createSfiTransactionOverview(data, 'sales')
+    const positions = calculateSfiPositions(result, 'hierarchy', 1200, 800)
+    const edgeByCanonicalId = new Map(
+      result.edgeInstances.map((instance) => [instance.canonicalEdgeId, instance]),
+    )
+    const diagonal = edgeByCanonicalId.get('a-y')!
+    const opposing = edgeByCanonicalId.get('b-x')!
+
+    expect(segmentsCross(
+      positions.get(diagonal.source)!,
+      positions.get(diagonal.target)!,
+      positions.get(opposing.source)!,
+      positions.get(opposing.target)!,
+    )).toBe(false)
+  })
+
   it('creates one visual instance in every principal path that reaches a company', () => {
     const result = overview([
       edge('sfi-gba', 'sfi', 'gba', 400),
@@ -189,10 +325,10 @@ describe('buildSfiTransactionOverview', () => {
     ])
 
     expect(instancesFor(result, 'x').map((instance) => instance.branch)).toEqual([
-      'GBA',
       'LDN',
-      'MSP',
       'LJ',
+      'MSP',
+      'GBA',
     ])
     expect(result.canonicalVisibleNodeIds.has('x')).toBe(true)
     expect(result.canonicalVisibleNodeIds.size).toBe(6)
@@ -214,7 +350,7 @@ describe('buildSfiTransactionOverview', () => {
     expect(xEdges).toHaveLength(2)
   })
 
-  it('keeps a direct SFI instance separate from four branch instances', () => {
+  it('keeps a dynamic direct principal separate from occurrences in four other branches', () => {
     const result = overview([
       edge('sfi-gba', 'sfi', 'gba', 500),
       edge('sfi-ldn', 'sfi', 'ldn', 400),
@@ -230,9 +366,9 @@ describe('buildSfiTransactionOverview', () => {
     const xInstances = instancesFor(result, 'x')
     expect(xInstances).toHaveLength(5)
     expect(new Set(xInstances.map((instance) => instance.branch))).toEqual(
-      new Set(['GBA', 'LDN', 'MSP', 'LJ', 'DIRECT']),
+      new Set(['GBA', 'LDN', 'MSP', 'LJ', 'COMPANY:x']),
     )
-    expect(xInstances.map((instance) => instance.id)).toContain('direct:x')
+    expect(xInstances.map((instance) => instance.id)).toContain('branch:COMPANY:x:x')
   })
 })
 

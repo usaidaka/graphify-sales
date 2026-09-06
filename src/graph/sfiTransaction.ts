@@ -141,6 +141,126 @@ function compareEdges(a: EdgeData, b: EdgeData): number {
     || a.id.localeCompare(b.id);
 }
 
+/**
+ * Assigns effective distribution depth. A direct shortcut never pulls a node
+ * inward when another valid transaction chain proves that it is downstream.
+ * Cyclic nodes are condensed into one component because their relative order
+ * cannot be established consistently.
+ */
+function calculateEffectiveLevels(
+  adjacency: Map<string, EdgeData[]>,
+  rootId: string,
+  view: TransactionView,
+  blockedNodeIds: Set<string> = new Set()
+): Map<string, number> {
+  const reachable = new Set<string>([rootId]);
+  const pending = [rootId];
+  for (let index = 0; index < pending.length; index += 1) {
+    const parentId = pending[index];
+    for (const edge of adjacency.get(parentId) ?? []) {
+      const { child } = traversalEndpoints(edge, view);
+      if (child === rootId || blockedNodeIds.has(child) || reachable.has(child)) continue;
+      reachable.add(child);
+      pending.push(child);
+    }
+  }
+
+  let nextIndex = 0;
+  const indexByNode = new Map<string, number>();
+  const lowLinkByNode = new Map<string, number>();
+  const stack: string[] = [];
+  const onStack = new Set<string>();
+  const componentByNode = new Map<string, number>();
+  let componentCount = 0;
+
+  const connect = (nodeId: string) => {
+    indexByNode.set(nodeId, nextIndex);
+    lowLinkByNode.set(nodeId, nextIndex);
+    nextIndex += 1;
+    stack.push(nodeId);
+    onStack.add(nodeId);
+
+    for (const edge of adjacency.get(nodeId) ?? []) {
+      const { child } = traversalEndpoints(edge, view);
+      if (child === rootId || blockedNodeIds.has(child) || !reachable.has(child)) continue;
+      if (!indexByNode.has(child)) {
+        connect(child);
+        lowLinkByNode.set(
+          nodeId,
+          Math.min(lowLinkByNode.get(nodeId)!, lowLinkByNode.get(child)!)
+        );
+      } else if (onStack.has(child)) {
+        lowLinkByNode.set(
+          nodeId,
+          Math.min(lowLinkByNode.get(nodeId)!, indexByNode.get(child)!)
+        );
+      }
+    }
+
+    if (lowLinkByNode.get(nodeId) !== indexByNode.get(nodeId)) return;
+    while (stack.length > 0) {
+      const member = stack.pop()!;
+      onStack.delete(member);
+      componentByNode.set(member, componentCount);
+      if (member === nodeId) break;
+    }
+    componentCount += 1;
+  };
+
+  [...reachable].sort().forEach((nodeId) => {
+    if (!indexByNode.has(nodeId)) connect(nodeId);
+  });
+
+  const outgoingComponents = new Map<number, Set<number>>();
+  const indegree = new Map<number, number>();
+  for (let component = 0; component < componentCount; component += 1) {
+    outgoingComponents.set(component, new Set());
+    indegree.set(component, 0);
+  }
+  reachable.forEach((parentId) => {
+    const parentComponent = componentByNode.get(parentId)!;
+    for (const edge of adjacency.get(parentId) ?? []) {
+      const { child } = traversalEndpoints(edge, view);
+      if (child === rootId || blockedNodeIds.has(child) || !reachable.has(child)) continue;
+      const childComponent = componentByNode.get(child)!;
+      if (parentComponent === childComponent) continue;
+      const targets = outgoingComponents.get(parentComponent)!;
+      if (targets.has(childComponent)) continue;
+      targets.add(childComponent);
+      indegree.set(childComponent, indegree.get(childComponent)! + 1);
+    }
+  });
+
+  const rootComponent = componentByNode.get(rootId)!;
+  const levelByComponent = new Map<number, number>([[rootComponent, 0]]);
+  const componentQueue = [...indegree.entries()]
+    .filter(([, degree]) => degree === 0)
+    .map(([component]) => component)
+    .sort((a, b) => a - b);
+  for (let index = 0; index < componentQueue.length; index += 1) {
+    const component = componentQueue[index];
+    const parentLevel = levelByComponent.get(component);
+    for (const childComponent of outgoingComponents.get(component) ?? []) {
+      if (parentLevel !== undefined) {
+        levelByComponent.set(
+          childComponent,
+          Math.max(levelByComponent.get(childComponent) ?? 0, parentLevel + 1)
+        );
+      }
+      const remaining = indegree.get(childComponent)! - 1;
+      indegree.set(childComponent, remaining);
+      if (remaining === 0) componentQueue.push(childComponent);
+    }
+  }
+
+  return new Map(
+    [...reachable].map((nodeId) => [
+      nodeId,
+      levelByComponent.get(componentByNode.get(nodeId)!) ?? 0,
+    ])
+  );
+}
+
 function assignDenseRanks(
   nodes: string[],
   valueByNode: Map<string, number>
@@ -175,19 +295,7 @@ function buildCanonicalAnalysis(
   });
   adjacency.forEach((edges) => edges.sort(compareEdges));
 
-  const levelByNode = new Map<string, number>([[sfi.id, 0]]);
-  const queue = [sfi.id];
-  for (let index = 0; index < queue.length; index += 1) {
-    const parentId = queue[index];
-    const nextLevel = (levelByNode.get(parentId) ?? 0) + 1;
-    for (const edge of adjacency.get(parentId) ?? []) {
-      const { child } = traversalEndpoints(edge, view);
-      if (!levelByNode.has(child)) {
-        levelByNode.set(child, nextLevel);
-        queue.push(child);
-      }
-    }
-  }
+  const levelByNode = calculateEffectiveLevels(adjacency, sfi.id, view);
 
   const visibleNodeIds = new Set(levelByNode.keys());
   const visibleEdges = graph.edges.filter((edge) =>
@@ -218,9 +326,21 @@ function buildCanonicalAnalysis(
       valueByNode.set(nodeId, edgeValue(selected));
     });
 
-  const directIds = [...visibleNodeIds]
-    .filter((nodeId) => levelByNode.get(nodeId) === 1)
-    .sort((a, b) => a.localeCompare(b));
+  const directIds = [...new Set(
+    (adjacency.get(sfi.id) ?? [])
+      .map((edge) => traversalEndpoints(edge, view).child)
+      .filter((nodeId) => nodeId !== sfi.id && visibleNodeIds.has(nodeId))
+  )].sort((a, b) => a.localeCompare(b));
+  const directIdSet = new Set(directIds);
+  directIds.forEach((nodeId) => {
+    const directEdge = (adjacency.get(sfi.id) ?? [])
+      .filter((edge) => traversalEndpoints(edge, view).child === nodeId)
+      .sort(compareEdges)[0];
+    if (!directEdge) return;
+    parentByNode.set(nodeId, sfi.id);
+    parentEdgeByNode.set(nodeId, directEdge.id);
+    valueByNode.set(nodeId, edgeValue(directEdge));
+  });
   const principalNodeByKey = new Map<PrincipalKey, string>();
   PRINCIPALS.forEach(({ key }) => {
     const node = resolvePrincipalNode(graph.nodes, key);
@@ -254,7 +374,7 @@ function buildCanonicalAnalysis(
   const branchRootByNode = new Map<string, string>();
   directIds.forEach((nodeId) => branchRootByNode.set(nodeId, nodeId));
   [...visibleNodeIds]
-    .filter((nodeId) => (levelByNode.get(nodeId) ?? 0) > 1)
+    .filter((nodeId) => !directIdSet.has(nodeId) && (levelByNode.get(nodeId) ?? 0) > 1)
     .sort((a, b) => (levelByNode.get(a)! - levelByNode.get(b)!) || a.localeCompare(b))
     .forEach((nodeId) => {
       const parent = parentByNode.get(nodeId);
@@ -437,18 +557,15 @@ export function createSfiTransactionOverview(
   branchSlots.forEach((slot) => {
     if (!slot.hubNodeId || !slot.hubInstanceId) return;
     const branch = slot.principal;
-    const localLevel = new Map<string, number>([[slot.hubNodeId, 1]]);
-    const queue = [slot.hubNodeId];
-    for (let index = 0; index < queue.length; index += 1) {
-      const parentCanonical = queue[index];
-      const nextLevel = localLevel.get(parentCanonical)! + 1;
-      for (const edge of analysis.adjacency.get(parentCanonical) ?? []) {
-        const { child } = traversalEndpoints(edge, view);
-        if (child === sfi.id || localLevel.has(child)) continue;
-        localLevel.set(child, nextLevel);
-        queue.push(child);
-      }
-    }
+    const effectiveDepth = calculateEffectiveLevels(
+      analysis.adjacency,
+      slot.hubNodeId,
+      view,
+      new Set([sfi.id])
+    );
+    const localLevel = new Map(
+      [...effectiveDepth].map(([nodeId, depth]) => [nodeId, depth + 1])
+    );
 
     const instanceByCanonical = new Map<string, string>([[sfi.id, sfiInstanceId]]);
     [...localLevel.entries()]
@@ -623,6 +740,114 @@ function angleByNode(
   return result;
 }
 
+function segmentsCross(
+  a: SfiPosition,
+  b: SfiPosition,
+  c: SfiPosition,
+  d: SfiPosition
+): boolean {
+  const orientation = (p: SfiPosition, q: SfiPosition, r: SfiPosition) =>
+    (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  const abC = orientation(a, b, c);
+  const abD = orientation(a, b, d);
+  const cdA = orientation(c, d, a);
+  const cdB = orientation(c, d, b);
+  return abC * abD < 0 && cdA * cdB < 0;
+}
+
+function countEdgeCrossings(
+  edges: VisualEdgeInstance[],
+  positions: Map<string, SfiPosition>
+): number {
+  let crossings = 0;
+  for (let firstIndex = 0; firstIndex < edges.length; firstIndex += 1) {
+    const first = edges[firstIndex];
+    const firstSource = positions.get(first.source);
+    const firstTarget = positions.get(first.target);
+    if (!firstSource || !firstTarget) continue;
+    for (let secondIndex = firstIndex + 1; secondIndex < edges.length; secondIndex += 1) {
+      const second = edges[secondIndex];
+      if (
+        first.source === second.source
+        || first.source === second.target
+        || first.target === second.source
+        || first.target === second.target
+      ) {
+        continue;
+      }
+      const secondSource = positions.get(second.source);
+      const secondTarget = positions.get(second.target);
+      if (
+        secondSource
+        && secondTarget
+        && segmentsCross(firstSource, firstTarget, secondSource, secondTarget)
+      ) {
+        crossings += 1;
+      }
+    }
+  }
+  return crossings;
+}
+
+function minimizeHierarchyCrossings(
+  overview: SfiTransactionOverview,
+  positions: Map<string, SfiPosition>
+) {
+  const nodesByRootAndLevel = new Map<string, string[]>();
+  overview.visibleNodeIds.forEach((nodeId) => {
+    if (nodeId === overview.sfiInstanceId) return;
+    const root = overview.branchRootByNode.get(nodeId) ?? nodeId;
+    if (nodeId === root) return;
+    const level = overview.levelByNode.get(nodeId) ?? 0;
+    const key = `${root}:${level}`;
+    const nodes = nodesByRootAndLevel.get(key) ?? [];
+    nodes.push(nodeId);
+    nodesByRootAndLevel.set(key, nodes);
+  });
+
+  nodesByRootAndLevel.forEach((nodeIds) => {
+    if (nodeIds.length < 2) return;
+    const root = overview.branchRootByNode.get(nodeIds[0]) ?? nodeIds[0];
+    const branchEdges = overview.edgeInstances.filter((edge) => {
+      const sourceRoot = edge.source === overview.sfiInstanceId
+        ? root
+        : overview.branchRootByNode.get(edge.source) ?? edge.source;
+      const targetRoot = edge.target === overview.sfiInstanceId
+        ? root
+        : overview.branchRootByNode.get(edge.target) ?? edge.target;
+      return sourceRoot === root && targetRoot === root;
+    });
+    if (branchEdges.length < 2) return;
+
+    let bestCrossings = countEdgeCrossings(branchEdges, positions);
+    if (bestCrossings === 0) return;
+    for (let pass = 0; pass < 4; pass += 1) {
+      let improved = false;
+      for (let firstIndex = 0; firstIndex < nodeIds.length - 1; firstIndex += 1) {
+        for (let secondIndex = firstIndex + 1; secondIndex < nodeIds.length; secondIndex += 1) {
+          const firstId = nodeIds[firstIndex];
+          const secondId = nodeIds[secondIndex];
+          const firstPosition = positions.get(firstId);
+          const secondPosition = positions.get(secondId);
+          if (!firstPosition || !secondPosition) continue;
+          positions.set(firstId, secondPosition);
+          positions.set(secondId, firstPosition);
+          const candidateCrossings = countEdgeCrossings(branchEdges, positions);
+          if (candidateCrossings < bestCrossings) {
+            bestCrossings = candidateCrossings;
+            improved = true;
+          } else {
+            positions.set(firstId, firstPosition);
+            positions.set(secondId, secondPosition);
+          }
+          if (bestCrossings === 0) return;
+        }
+      }
+      if (!improved) return;
+    }
+  });
+}
+
 export function calculateSfiPositions(
   overview: SfiTransactionOverview,
   mode: SfiLayoutMode,
@@ -654,6 +879,7 @@ export function calculateSfiPositions(
         y: center.y + radius * Math.sin(angle),
       });
     });
+    minimizeHierarchyCrossings(overview, positions);
     return positions;
   }
 
