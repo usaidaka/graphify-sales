@@ -16,6 +16,10 @@ _Avoid_: Fixed principal slot
 The representation of a company within one Direct Principal's distribution path. One company identity may have multiple Branch Occurrences without becoming multiple companies.
 _Avoid_: Duplicate company
 
+**Internal Boundary**:
+The circular boundary containing SFI's internal and special-external company network. External, distributor, and WAPU occurrences sit outside this boundary while retaining their transaction paths.
+_Avoid_: Entire graph boundary
+
 **Effective Distribution Depth**:
 The farthest consistent downstream position established by transaction relationships and sibling-cohort ordering within a branch. A direct shortcut does not pull a company inward when the cohort establishes a downstream tier.
 _Avoid_: Shortest distance

@@ -6,6 +6,8 @@ import { buildSfiCytoscapeElements } from '../graph/builder';
 import {
   calculateSfiPositions,
   createSfiTransactionOverview,
+  SFI_INTERNAL_BOUNDARY_MIN_RADIUS,
+  SFI_INTERNAL_BOUNDARY_PADDING,
   type SfiLayoutMode,
   type SfiTransactionOverview,
 } from '../graph/sfiTransaction';
@@ -96,16 +98,21 @@ function renderSectorGuide(
   const centerNode = cy.getElementById(overview.sfiInstanceId);
   if (centerNode.length === 0) return;
   const center = centerNode.renderedPosition();
-  const visibleNodes = cy.nodes().filter((node) => overview.visibleNodeIds.has(node.id()));
-  let outerRadius = 0;
-  visibleNodes.forEach((node) => {
+  const boundaryNodes = cy.nodes().filter((node) =>
+    overview.visibleNodeIds.has(node.id()) && overview.insideBoundaryNodeIds.has(node.id())
+  );
+  let deepestInternalRadius = 0;
+  boundaryNodes.forEach((node) => {
     const position = node.renderedPosition();
-    outerRadius = Math.max(
-      outerRadius,
+    deepestInternalRadius = Math.max(
+      deepestInternalRadius,
       Math.hypot(position.x - center.x, position.y - center.y)
     );
   });
-  outerRadius += Math.max(28, 20 * cy.zoom());
+  const outerRadius = Math.max(
+    SFI_INTERNAL_BOUNDARY_MIN_RADIUS * cy.zoom(),
+    deepestInternalRadius + SFI_INTERNAL_BOUNDARY_PADDING * cy.zoom()
+  );
   const innerRadius = Math.max(28, centerNode.renderedOuterWidth() / 2 + 7);
 
   overlay.setAttribute('viewBox', `0 0 ${cy.width()} ${cy.height()}`);

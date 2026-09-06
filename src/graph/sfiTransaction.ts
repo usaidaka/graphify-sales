@@ -17,6 +17,9 @@ const LEGAL_PREFIXES = new Set(['pt', 'cv', 'pd', 'ud']);
 const HIERARCHY_LEVEL_GAP = 150;
 const VALUE_FIRST_STEP = 108;
 const VALUE_RANK_GAP = 46;
+export const SFI_INTERNAL_BOUNDARY_PADDING = 36;
+export const SFI_INTERNAL_BOUNDARY_MIN_RADIUS = HIERARCHY_LEVEL_GAP;
+const SFI_EXTERNAL_BOUNDARY_GAP = 64;
 
 export interface BranchSlot {
   principal: VisualBranchKey;
@@ -52,6 +55,7 @@ export interface SfiTransactionOverview {
   visibleEdgeIds: Set<string>;
   canonicalVisibleNodeIds: Set<string>;
   canonicalVisibleEdgeIds: Set<string>;
+  insideBoundaryNodeIds: Set<string>;
   levelByNode: Map<string, number>;
   parentByNode: Map<string, string>;
   parentEdgeByNode: Map<string, string>;
@@ -454,6 +458,7 @@ function emptyOverview(view: TransactionView, sfi?: NodeData): SfiTransactionOve
     visibleEdgeIds: new Set(),
     canonicalVisibleNodeIds: new Set(sfi ? [sfi.id] : []),
     canonicalVisibleEdgeIds: new Set(),
+    insideBoundaryNodeIds: new Set(),
     levelByNode: new Map(sfiInstanceId ? [[sfiInstanceId, 0]] : []),
     parentByNode: new Map(),
     parentEdgeByNode: new Map(),
@@ -670,6 +675,7 @@ export function createSfiTransactionOverview(
 
   const finalNodes = [...nodeInstances.values()];
   const finalEdges = [...edgeInstances.values()];
+  const nodeByCanonicalId = new Map(graph.nodes.map((node) => [node.id, node]));
   return {
     view,
     sfiId: sfi.id,
@@ -680,6 +686,16 @@ export function createSfiTransactionOverview(
     visibleEdgeIds: new Set(finalEdges.map(({ id }) => id)),
     canonicalVisibleNodeIds: analysis.visibleNodeIds,
     canonicalVisibleEdgeIds: new Set(analysis.visibleEdges.map(({ id }) => id)),
+    insideBoundaryNodeIds: new Set(
+      finalNodes
+        .filter(({ canonicalCompanyId }) =>
+          canonicalCompanyId !== sfi.id
+          && ['internal', 'special-external'].includes(
+            nodeByCanonicalId.get(canonicalCompanyId)?.nodeType ?? ''
+          )
+        )
+        .map(({ id }) => id)
+    ),
     levelByNode,
     parentByNode,
     parentEdgeByNode,
@@ -835,7 +851,8 @@ function minimizeHierarchyCrossings(
     const root = overview.branchRootByNode.get(nodeId) ?? nodeId;
     if (nodeId === root) return;
     const level = overview.levelByNode.get(nodeId) ?? 0;
-    const key = `${root}:${level}`;
+    const boundaryGroup = overview.insideBoundaryNodeIds.has(nodeId) ? 'inside' : 'outside';
+    const key = `${root}:${level}:${boundaryGroup}`;
     const nodes = nodesByRootAndLevel.get(key) ?? [];
     nodes.push(nodeId);
     nodesByRootAndLevel.set(key, nodes);
@@ -884,6 +901,53 @@ function minimizeHierarchyCrossings(
   });
 }
 
+function moveNonInternalNodesOutsideBoundary(
+  overview: SfiTransactionOverview,
+  positions: Map<string, SfiPosition>,
+  center: SfiPosition
+) {
+  let deepestInternalRadius = 0;
+  overview.insideBoundaryNodeIds.forEach((nodeId) => {
+    const position = positions.get(nodeId);
+    if (!position) return;
+    deepestInternalRadius = Math.max(
+      deepestInternalRadius,
+      Math.hypot(position.x - center.x, position.y - center.y)
+    );
+  });
+  const boundaryRadius = Math.max(
+    HIERARCHY_LEVEL_GAP,
+    deepestInternalRadius + SFI_INTERNAL_BOUNDARY_PADDING
+  );
+  const outsideFloor = boundaryRadius + SFI_EXTERNAL_BOUNDARY_GAP;
+  const outsideNodeIds = [...overview.visibleNodeIds]
+    .filter((nodeId) =>
+      nodeId !== overview.sfiInstanceId && !overview.insideBoundaryNodeIds.has(nodeId)
+    );
+  const currentRadii = outsideNodeIds.flatMap((nodeId) => {
+    const position = positions.get(nodeId);
+    return position
+      ? [Math.hypot(position.x - center.x, position.y - center.y)]
+      : [];
+  });
+  if (currentRadii.length === 0) return;
+  const radialShift = Math.max(0, outsideFloor - Math.min(...currentRadii));
+  if (radialShift === 0) return;
+  outsideNodeIds.forEach((nodeId) => {
+    const position = positions.get(nodeId);
+    if (!position) return;
+    const deltaX = position.x - center.x;
+    const deltaY = position.y - center.y;
+    const radius = Math.hypot(deltaX, deltaY);
+    const angle = radius === 0 ? 0 : Math.atan2(deltaY, deltaX);
+    const shiftedRadius = radius + radialShift;
+    positions.set(nodeId, {
+      x: center.x + shiftedRadius * Math.cos(angle),
+      y: center.y + shiftedRadius * Math.sin(angle),
+    });
+  });
+}
+
 export function calculateSfiPositions(
   overview: SfiTransactionOverview,
   mode: SfiLayoutMode,
@@ -915,6 +979,7 @@ export function calculateSfiPositions(
         y: center.y + radius * Math.sin(angle),
       });
     });
+    moveNonInternalNodesOutsideBoundary(overview, positions, center);
     minimizeHierarchyCrossings(overview, positions);
     return positions;
   }
@@ -930,5 +995,6 @@ export function calculateSfiPositions(
       y: parentPosition.y + distance * Math.sin(angle),
     });
   });
+  moveNonInternalNodesOutsideBoundary(overview, positions, center);
   return positions;
 }
