@@ -434,7 +434,10 @@ export const NetworkGraph: React.FC = () => {
         });
       };
 
-      addSupplementalNodes(incomingIds, inwardAngle);
+      // Keep supplemental suppliers out of the corridor between the selected
+      // company and SFI. The external group uses the opposite tangent, so the
+      // three focus lanes remain visually separated.
+      addSupplementalNodes(incomingIds, inwardAngle - Math.PI / 2);
       addSupplementalNodes(outgoingIds, inwardAngle + Math.PI);
 
       const externalMemberIdSet = new Set(externalMemberIds);
