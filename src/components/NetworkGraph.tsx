@@ -451,12 +451,10 @@ export const NetworkGraph: React.FC = () => {
         const hasIncoming = externalRelationships.some(
           (relationship) => relationship.target === state.focusedNodeId
         );
-        const hasOutgoing = externalRelationships.some(
-          (relationship) => relationship.source === state.focusedNodeId
-        );
-        const groupAngle = hasIncoming && hasOutgoing
+        const groupAngle = hasIncoming
           ? inwardAngle + Math.PI / 2
-          : hasIncoming ? inwardAngle : inwardAngle + Math.PI;
+          : inwardAngle + Math.PI;
+        const externalGroupRadius = 176;
         cy.add({
           group: 'nodes',
           data: {
@@ -471,8 +469,8 @@ export const NetworkGraph: React.FC = () => {
             size: 40,
           },
           position: {
-            x: anchorPosition.x + 138 * Math.cos(groupAngle),
-            y: anchorPosition.y + 138 * Math.sin(groupAngle),
+            x: anchorPosition.x + externalGroupRadius * Math.cos(groupAngle),
+            y: anchorPosition.y + externalGroupRadius * Math.sin(groupAngle),
           },
           classes: 'focus-supplemental external-group highlighted',
         });
