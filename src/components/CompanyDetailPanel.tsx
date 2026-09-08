@@ -7,7 +7,8 @@ import './CompanyDetailPanel.css';
 
 export const CompanyDetailPanel: React.FC = () => {
   const { state, dispatch } = useUI();
-  const { graph } = useGraphData();
+  const { relationshipGraph } = useGraphData();
+  const graph = relationshipGraph;
 
   const focusedNodeId = state.focusedNodeId;
   const node = useMemo(() => graph?.nodes.find(n => n.id === focusedNodeId), [graph, focusedNodeId]);

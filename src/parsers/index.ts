@@ -116,7 +116,9 @@ function extractRows(sheet: xlsx.WorkSheet, headerMap: Record<string, string>, d
     const month = parseMonth(masa);
     const year = parseYear(tahun);
     
-    const isImport = isNpwpEmptyOrImport(sellerNpwp) || isNpwpEmptyOrImport(buyerNpwp);
+    const sellerIsImport = isNpwpEmptyOrImport(sellerNpwp);
+    const buyerIsImport = isNpwpEmptyOrImport(buyerNpwp);
+    const isImport = sellerIsImport || buyerIsImport;
 
     rows.push({
       sellerName: String(seller).trim(),
@@ -131,7 +133,9 @@ function extractRows(sheet: xlsx.WorkSheet, headerMap: Record<string, string>, d
       period: `${masa} / ${tahun}`.trim(),
       month,
       year,
-      isImport
+      isImport,
+      sellerIsImport,
+      buyerIsImport
     });
   }
 

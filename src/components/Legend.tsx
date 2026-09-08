@@ -31,7 +31,7 @@ export const Legend: React.FC = () => {
           </div>
           <div className="legend-item">
             <div className="legend-shape node-import"></div>
-            <span>Transaksi Import</span>
+            <span>Perusahaan Import</span>
           </div>
         </div>
       </div>

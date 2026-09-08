@@ -40,8 +40,10 @@ export const graphStyles: any = [
   {
     selector: 'node[?isImport]',
     style: {
-      'border-color': '#38bdf8',
-      'border-width': 3.5
+      'background-color': '#0891b2',
+      'border-color': '#a5f3fc',
+      'border-width': 3.5,
+      'shape': 'hexagon'
     }
   },
   {
@@ -219,6 +221,23 @@ export const graphStyles: any = [
       'width': 2,
       'opacity': 1,
       'z-index': 10
+    }
+  },
+  {
+    selector: 'node.focus-supplemental',
+    style: {
+      'border-width': 3,
+      'z-index': 18
+    }
+  },
+  {
+    selector: 'edge.focus-supplemental',
+    style: {
+      'curve-style': 'straight',
+      'line-style': 'dashed',
+      'width': 2.5,
+      'opacity': 1,
+      'z-index': 16
     }
   },
   // Keep focus dimming last so role-specific SFI styles cannot restore the

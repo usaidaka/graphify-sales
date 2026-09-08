@@ -6,7 +6,8 @@ import './RelationshipDetailPanel.css';
 
 export const RelationshipDetailPanel: React.FC = () => {
   const { state, dispatch } = useUI();
-  const { graph } = useGraphData();
+  const { relationshipGraph } = useGraphData();
+  const graph = relationshipGraph;
 
   if (!state.selectedEdgeId || !graph) return null;
 

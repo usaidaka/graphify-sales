@@ -20,6 +20,18 @@ _Avoid_: Duplicate company
 The circular boundary containing SFI's internal and special-external company network. External, distributor, and WAPU occurrences sit outside this boundary while retaining their transaction paths.
 _Avoid_: Entire graph boundary
 
+**Master-listed Company**:
+A company whose transaction name matches a full name or abbreviation in the `data perusahaan` master. Only master-listed companies qualify as internal; an automatically generated abbreviation never grants internal status to an unlisted company.
+_Avoid_: Initials match, inferred internal company
+
+**Focused Relationship**:
+A direct purchase or sale involving the selected company. Focused Relationships may reveal counterparties outside the SFI distribution path or current internal-only overview while retaining all active transaction filters.
+_Avoid_: Permanent overview branch
+
+**Import Company**:
+The endpoint of a transaction whose own tax identifier marks it as an import party. The domestic counterparty does not become an Import Company merely because it participates in the same transaction.
+_Avoid_: Import transaction participant
+
 **Effective Distribution Depth**:
 The farthest consistent downstream position established by transaction relationships and sibling-cohort ordering within a branch. A direct shortcut does not pull a company inward when the cohort establishes a downstream tier.
 _Avoid_: Shortest distance

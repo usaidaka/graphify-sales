@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import cytoscape from 'cytoscape';
 import { useGraphData } from '../context/GraphDataContext';
 import { useUI } from '../context/UIContext';
-import { buildSfiCytoscapeElements } from '../graph/builder';
+import { buildCytoscapeElements, buildSfiCytoscapeElements } from '../graph/builder';
 import {
   calculateSfiPositions,
   createSfiTransactionOverview,
@@ -159,7 +159,8 @@ export const NetworkGraph: React.FC = () => {
   const cyRef = useRef<cytoscape.Core | null>(null);
   const overviewRef = useRef<SfiTransactionOverview | null>(null);
   const layoutModeRef = useRef<SfiLayoutMode>('hierarchy');
-  const { graph, loading, error } = useGraphData();
+  const focusedOccurrenceRef = useRef<string | null>(null);
+  const { graph, relationshipGraph, loading, error } = useGraphData();
   const { dispatch, state } = useUI();
   const [layoutRunning, setLayoutRunning] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -180,6 +181,7 @@ export const NetworkGraph: React.FC = () => {
         wheelSensitivity: 0.2,
       });
       cy.on('tap', 'node', (event) => {
+        focusedOccurrenceRef.current = event.target.id();
         dispatch({
           type: 'SET_FOCUS_NODE',
           payload: event.target.data('canonicalCompanyId') ?? event.target.id(),
@@ -193,6 +195,7 @@ export const NetworkGraph: React.FC = () => {
       });
       cy.on('tap', (event) => {
         if (event.target !== cy) return;
+        focusedOccurrenceRef.current = null;
         dispatch({ type: 'CLEAR_FOCUS' });
         dispatch({ type: 'CLEAR_EDGE_SELECTION' });
       });
@@ -289,9 +292,12 @@ export const NetworkGraph: React.FC = () => {
   useEffect(() => {
     const cy = cyRef.current;
     const overview = overviewRef.current;
-    if (!cy || !overview || layoutRunning) return;
+    if (!cy || !overview || !relationshipGraph || layoutRunning) return;
+
+    cy.elements('.focus-supplemental').remove();
+    applySfiLayout(cy, overview, layoutModeRef.current);
+
     cy.batch(() => {
-      cy.elements().removeClass('dimmed highlighted');
       if (
         !state.focusedNodeId
         || !overview.canonicalVisibleNodeIds.has(state.focusedNodeId)
@@ -301,7 +307,133 @@ export const NetworkGraph: React.FC = () => {
       );
       if (targets.length === 0) return;
 
-      const connectedEdges = targets.connectedEdges(':visible');
+      const preferredTarget = focusedOccurrenceRef.current
+        ? cy.getElementById(focusedOccurrenceRef.current)
+        : cy.collection();
+      const anchor = (preferredTarget.length > 0
+        && preferredTarget.data('canonicalCompanyId') === state.focusedNodeId
+          ? preferredTarget.first()
+          : targets.first()) as cytoscape.NodeSingular;
+      const targetIds = new Set(targets.map((node) => node.id()));
+      const relationships = relationshipGraph.edges.filter(
+        (edge) => edge.source === state.focusedNodeId || edge.target === state.focusedNodeId
+      );
+      const rankedIncoming = [...relationships]
+        .filter((edge) => edge.target === state.focusedNodeId)
+        .sort((a, b) => b.totalDPP - a.totalDPP || b.invoiceCount - a.invoiceCount);
+      const rankedOutgoing = [...relationships]
+        .filter((edge) => edge.source === state.focusedNodeId)
+        .sort((a, b) => b.totalDPP - a.totalDPP || b.invoiceCount - a.invoiceCount);
+      const rankByEdgeId = new Map<string, number>();
+      rankedIncoming.forEach((edge, index) => rankByEdgeId.set(edge.id, index + 1));
+      rankedOutgoing.forEach((edge, index) => rankByEdgeId.set(edge.id, index + 1));
+
+      const canonicalElements = buildCytoscapeElements(relationshipGraph);
+      const canonicalNodes = new Map(
+        canonicalElements
+          .filter((element) => element.group === 'nodes')
+          .map((element) => [String(element.data?.id), element])
+      );
+      const canonicalEdges = new Map(
+        canonicalElements
+          .filter((element) => element.group === 'edges')
+          .map((element) => [String(element.data?.id), element])
+      );
+      const supplementalRelationships = relationships.filter((relationship) =>
+        cy.edges(':visible').filter((edge) =>
+          edge.data('canonicalEdgeId') === relationship.id
+          && (targetIds.has(edge.source().id()) || targetIds.has(edge.target().id()))
+        ).length === 0
+      );
+      const counterpartIds = [...new Set(supplementalRelationships.map((edge) =>
+        edge.source === state.focusedNodeId ? edge.target : edge.source
+      ))];
+      const incomingIds = counterpartIds.filter((counterpartId) =>
+        relationships.some((edge) =>
+          edge.source === counterpartId && edge.target === state.focusedNodeId
+        )
+      );
+      const outgoingIds = counterpartIds.filter((counterpartId) => !incomingIds.includes(counterpartId));
+      const anchorPosition = anchor.position();
+      const sfiPosition = overview.sfiInstanceId
+        ? cy.getElementById(overview.sfiInstanceId).position()
+        : { x: anchorPosition.x - 1, y: anchorPosition.y };
+      const inwardAngle = Math.atan2(
+        sfiPosition.y - anchorPosition.y,
+        sfiPosition.x - anchorPosition.x
+      );
+      const supplementalNodeByCanonical = new Map<string, string>();
+
+      const addSupplementalNodes = (
+        canonicalIds: string[],
+        baseAngle: number
+      ) => {
+        const spread = Math.min(Math.PI * 0.8, Math.max(0.5, canonicalIds.length * 0.34));
+        canonicalIds.forEach((canonicalId, index) => {
+          const canonical = canonicalNodes.get(canonicalId);
+          if (!canonical?.data) return;
+          const visualId = `focus:${state.focusedNodeId}:${canonicalId}`;
+          const offset = canonicalIds.length === 1
+            ? 0
+            : -spread / 2 + (spread * index) / (canonicalIds.length - 1);
+          const radius = 116 + Math.floor(index / 7) * 52;
+          const angle = baseAngle + offset;
+          cy.add({
+            group: 'nodes',
+            data: {
+              ...canonical.data,
+              id: visualId,
+              canonicalCompanyId: canonicalId,
+            },
+            position: {
+              x: anchorPosition.x + radius * Math.cos(angle),
+              y: anchorPosition.y + radius * Math.sin(angle),
+            },
+            classes: 'focus-supplemental highlighted',
+          });
+          supplementalNodeByCanonical.set(canonicalId, visualId);
+        });
+      };
+
+      addSupplementalNodes(incomingIds, inwardAngle);
+      addSupplementalNodes(outgoingIds, inwardAngle + Math.PI);
+
+      let focusedEdges = cy.collection();
+      relationships.forEach((relationship) => {
+        const direction = relationship.source === state.focusedNodeId ? 'outgoing' : 'incoming';
+        const existing = cy.edges(':visible').filter((edge) =>
+          edge.data('canonicalEdgeId') === relationship.id
+          && (targetIds.has(edge.source().id()) || targetIds.has(edge.target().id()))
+        );
+        if (existing.length > 0) {
+          existing.removeClass('outgoing incoming').addClass(`${direction} highlighted`);
+          existing.data('rankLabel', `#${rankByEdgeId.get(relationship.id) ?? 1}`);
+          focusedEdges = focusedEdges.merge(existing);
+          return;
+        }
+
+        const counterpartId = relationship.source === state.focusedNodeId
+          ? relationship.target
+          : relationship.source;
+        const counterpartVisualId = supplementalNodeByCanonical.get(counterpartId);
+        const canonical = canonicalEdges.get(relationship.id);
+        if (!counterpartVisualId || !canonical?.data) return;
+        const edge = cy.add({
+          group: 'edges',
+          data: {
+            ...canonical.data,
+            id: `focus:${state.focusedNodeId}:edge:${relationship.id}`,
+            source: relationship.source === state.focusedNodeId ? anchor.id() : counterpartVisualId,
+            target: relationship.target === state.focusedNodeId ? anchor.id() : counterpartVisualId,
+            canonicalEdgeId: relationship.id,
+            rankLabel: `#${rankByEdgeId.get(relationship.id) ?? 1}`,
+          },
+          classes: `sfi-edge focus-supplemental ${direction} highlighted`,
+        });
+        focusedEdges = focusedEdges.merge(edge);
+      });
+
+      const connectedEdges = targets.connectedEdges(':visible').merge(focusedEdges);
       const relatedNodes = connectedEdges.connectedNodes().add(targets);
       const focusedElements = relatedNodes.add(connectedEdges);
 
@@ -310,7 +442,7 @@ export const NetworkGraph: React.FC = () => {
       targets.addClass('highlighted');
       connectedEdges.addClass('highlighted');
     });
-  }, [state.focusedNodeId, layoutRunning]);
+  }, [state.focusedNodeId, relationshipGraph, layoutRunning]);
 
   const setZoomAroundViewportCenter = (factor: number) => {
     const cy = cyRef.current;

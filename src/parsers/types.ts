@@ -12,6 +12,8 @@ export interface RawTransactionRow {
   month: number | null;
   year: number | null;
   isImport: boolean;
+  sellerIsImport?: boolean;
+  buyerIsImport?: boolean;
 }
 
 export interface InternalCompanyMaster {

@@ -44,6 +44,13 @@ function overview(edges: EdgeData[], view: TransactionView = 'sales') {
   return createSfiTransactionOverview(graph(edges), view)
 }
 
+function overviewWithInternalX(edges: EdgeData[], view: TransactionView = 'sales') {
+  return createSfiTransactionOverview({
+    nodes: nodes.map((node) => node.id === 'x' ? { ...node, nodeType: 'internal' } : node),
+    edges,
+  }, view)
+}
+
 function instancesFor(
   result: SfiTransactionOverview,
   canonicalCompanyId: string,
@@ -239,8 +246,8 @@ describe('buildSfiTransactionOverview', () => {
     expect(instancesFor(result, 'a', 'LDN')).toHaveLength(1)
   })
 
-  it('places a larger direct counterpart closer than an official principal', () => {
-    const result = overview([
+  it('places a larger internal direct counterpart closer than an official principal', () => {
+    const result = overviewWithInternalX([
       edge('sfi-x', 'sfi', 'x', 200),
       edge('sfi-ldn', 'sfi', 'ldn', 100),
     ])
@@ -267,8 +274,8 @@ describe('buildSfiTransactionOverview', () => {
     expect(result.valueRankByNode.get(ldn.id)).toBe(1)
   })
 
-  it('uses hierarchy level alone when distance ranking is disabled', () => {
-    const result = overview([
+  it('uses hierarchy level alone for nodes in the same boundary group', () => {
+    const result = overviewWithInternalX([
       edge('sfi-x', 'sfi', 'x', 200),
       edge('sfi-ldn', 'sfi', 'ldn', 100),
     ])

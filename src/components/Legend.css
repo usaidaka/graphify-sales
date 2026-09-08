@@ -97,10 +97,10 @@
 }
 
 .node-import {
-  background-color: #475569;
-  border-color: #38bdf8;
+  background-color: #0891b2;
+  border-color: #a5f3fc;
   border-width: 3px;
-  border-radius: 50%;
+  clip-path: polygon(25% 7%, 75% 7%, 100% 50%, 75% 93%, 25% 93%, 0 50%);
 }
 
 .node-sfi {

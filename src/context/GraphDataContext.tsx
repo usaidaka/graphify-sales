@@ -7,6 +7,7 @@ import { useUI } from './UIContext';
 
 interface GraphDataContextValue {
   graph: NormalizedGraph | null;
+  relationshipGraph: NormalizedGraph | null;
   availableYears: number[];
   loading: boolean;
   error: string | null;
@@ -18,6 +19,7 @@ export const GraphDataProvider: React.FC<{ children: ReactNode }> = ({ children 
   const { state } = useUI();
   const [parsedData, setParsedData] = useState<ParsedWorkbook | null>(null);
   const [graph, setGraph] = useState<NormalizedGraph | null>(null);
+  const [relationshipGraph, setRelationshipGraph] = useState<NormalizedGraph | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const availableYears = parsedData
@@ -49,16 +51,27 @@ export const GraphDataProvider: React.FC<{ children: ReactNode }> = ({ children 
   // Re-normalize graph whenever universeMode or scopeFilter changes
   useEffect(() => {
     if (parsedData) {
-      const normalized = normalize(
+      const fullScopeGraph = normalize(
         parsedData,
         state.universeMode,
-        state.scopeFilter,
+        'with-external',
         state.yearFrom,
         state.yearTo,
         state.selectedMonth,
         state.activeLayers
       );
-      setGraph(normalized);
+      setRelationshipGraph(fullScopeGraph);
+      setGraph(state.scopeFilter === 'with-external'
+        ? fullScopeGraph
+        : normalize(
+            parsedData,
+            state.universeMode,
+            state.scopeFilter,
+            state.yearFrom,
+            state.yearTo,
+            state.selectedMonth,
+            state.activeLayers
+          ));
     }
   }, [
     parsedData,
@@ -71,7 +84,7 @@ export const GraphDataProvider: React.FC<{ children: ReactNode }> = ({ children 
   ]);
 
   return (
-    <GraphDataContext.Provider value={{ graph, availableYears, loading, error }}>
+    <GraphDataContext.Provider value={{ graph, relationshipGraph, availableYears, loading, error }}>
       {children}
     </GraphDataContext.Provider>
   );

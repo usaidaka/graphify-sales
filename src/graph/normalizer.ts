@@ -141,21 +141,14 @@ export function resolveCompany(name: string, aliasMap: Map<string, AliasInfo>): 
 
   const generated = generateCanonicalAbbreviation(norm);
 
+  // Generated initials are only a display aid. They must not merge an
+  // unlisted company into a different master-listed company that happens to
+  // use the same abbreviation (for example, two companies abbreviated SAP).
   if (aliasMap.has(generated.abbr.toLowerCase())) {
-    const info = aliasMap.get(generated.abbr.toLowerCase())!;
     return {
-      key: info.canonicalName.toLowerCase(),
-      displayName: info.canonicalName,
-      fullName: info.fullName
-    };
-  }
-
-  if (aliasMap.has(generated.fullWithLegal.toLowerCase())) {
-    const info = aliasMap.get(generated.fullWithLegal.toLowerCase())!;
-    return {
-      key: info.canonicalName.toLowerCase(),
-      displayName: info.canonicalName,
-      fullName: info.fullName
+      key: generated.fullWithLegal.toLowerCase(),
+      displayName: generated.fullWithLegal,
+      fullName: generated.fullWithLegal
     };
   }
 
@@ -237,7 +230,9 @@ export function buildNodeMap(
           id: resolved.key,
           companyName: resolved.displayName,
           fullName: resolved.fullName,
-          nodeType: classifyNode(resolved.displayName, internalSet),
+          // Internal membership is determined from the transaction's source
+          // name, not from an automatically generated abbreviation.
+          nodeType: classifyNode(name, internalSet),
           isImport: isCompanyImport
         });
       } else if (isCompanyImport) {
@@ -245,8 +240,10 @@ export function buildNodeMap(
       }
     };
 
-    processCompany(row.sellerName, row.isImport);
-    processCompany(row.buyerName, row.isImport);
+    // Import is an endpoint role. A transaction with one foreign party must
+    // not make its domestic counterparty look like an import company too.
+    processCompany(row.sellerName, row.sellerIsImport ?? false);
+    processCompany(row.buyerName, row.buyerIsImport ?? false);
   });
 
   return nodeMap;
