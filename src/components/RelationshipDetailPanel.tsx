@@ -9,6 +9,7 @@ export const RelationshipDetailPanel: React.FC = () => {
   const { relationshipGraph } = useGraphData();
   const graph = relationshipGraph;
 
+  if (state.focusedExternalGroup) return null;
   if (!state.selectedEdgeId || !graph) return null;
 
   const edge = graph.edges.find(e => e.id === state.selectedEdgeId);

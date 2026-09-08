@@ -1,0 +1,25 @@
+.external-group-context {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.external-member-list {
+  max-height: min(58vh, 520px);
+}
+
+.external-member-item {
+  cursor: default;
+}
+
+.external-member-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.external-member-role {
+  color: var(--text-muted);
+  font-size: 10px;
+}

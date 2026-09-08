@@ -103,6 +103,13 @@
   clip-path: polygon(25% 7%, 75% 7%, 100% 50%, 75% 93%, 25% 93%, 0 50%);
 }
 
+.node-external-group {
+  width: 26px;
+  border-radius: 6px;
+  background-color: #334155;
+  border-color: #94a3b8;
+}
+
 .node-sfi {
   background-color: #2563eb;
   border-color: #93c5fd;

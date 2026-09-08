@@ -70,7 +70,7 @@ export const CompanyDetailPanel: React.FC = () => {
     };
   }, [graph, focusedNodeId, state.activeLayers]);
 
-  if (!node || !stats) return null;
+  if (state.focusedExternalGroup || !node || !stats) return null;
 
   const handleClose = () => {
     dispatch({ type: 'CLEAR_FOCUS' });

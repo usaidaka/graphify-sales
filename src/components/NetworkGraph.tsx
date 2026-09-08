@@ -12,6 +12,7 @@ import {
   type SfiTransactionOverview,
 } from '../graph/sfiTransaction';
 import { graphStyles } from '../graph/styles';
+import { partitionFocusedRelationships } from '../graph/focusProjection';
 import './NetworkGraph.css';
 
 function applySfiLayout(
@@ -181,6 +182,16 @@ export const NetworkGraph: React.FC = () => {
         wheelSensitivity: 0.2,
       });
       cy.on('tap', 'node', (event) => {
+        if (event.target.data('isExternalGroup')) {
+          dispatch({
+            type: 'SHOW_EXTERNAL_GROUP',
+            payload: {
+              ownerId: event.target.data('externalGroupOwnerId'),
+              memberIds: event.target.data('externalMemberIds') ?? [],
+            },
+          });
+          return;
+        }
         focusedOccurrenceRef.current = event.target.id();
         dispatch({
           type: 'SET_FOCUS_NODE',
@@ -188,6 +199,16 @@ export const NetworkGraph: React.FC = () => {
         });
       });
       cy.on('tap', 'edge', (event) => {
+        if (event.target.data('isExternalGroup')) {
+          dispatch({
+            type: 'SHOW_EXTERNAL_GROUP',
+            payload: {
+              ownerId: event.target.data('externalGroupOwnerId'),
+              memberIds: event.target.data('externalMemberIds') ?? [],
+            },
+          });
+          return;
+        }
         dispatch({
           type: 'SELECT_EDGE',
           payload: event.target.data('canonicalEdgeId') ?? event.target.id(),
@@ -345,7 +366,25 @@ export const NetworkGraph: React.FC = () => {
           && (targetIds.has(edge.source().id()) || targetIds.has(edge.target().id()))
         ).length === 0
       );
-      const counterpartIds = [...new Set(supplementalRelationships.map((edge) =>
+      const {
+        externalRelationships,
+        individualRelationships,
+        externalMemberIds,
+      } = partitionFocusedRelationships(
+        relationshipGraph,
+        state.focusedNodeId,
+        relationships
+      );
+      const externalRelationshipIds = new Set(
+        externalRelationships.map((relationship) => relationship.id)
+      );
+      const individualRelationshipIds = new Set(
+        individualRelationships.map((relationship) => relationship.id)
+      );
+      const individualSupplementalRelationships = supplementalRelationships.filter(
+        (relationship) => individualRelationshipIds.has(relationship.id)
+      );
+      const counterpartIds = [...new Set(individualSupplementalRelationships.map((edge) =>
         edge.source === state.focusedNodeId ? edge.target : edge.source
       ))];
       const incomingIds = counterpartIds.filter((counterpartId) =>
@@ -398,9 +437,51 @@ export const NetworkGraph: React.FC = () => {
       addSupplementalNodes(incomingIds, inwardAngle);
       addSupplementalNodes(outgoingIds, inwardAngle + Math.PI);
 
+      const externalMemberIdSet = new Set(externalMemberIds);
+      const externalGroupId = `focus:${state.focusedNodeId}:external-group`;
+      if (externalMemberIds.length > 0) {
+        cy.edges(':visible').filter((edge) =>
+          externalRelationshipIds.has(String(edge.data('canonicalEdgeId')))
+          && (targetIds.has(edge.source().id()) || targetIds.has(edge.target().id()))
+        ).style('display', 'none');
+        cy.nodes(':visible').filter((node) =>
+          externalMemberIdSet.has(String(node.data('canonicalCompanyId')))
+        ).style('display', 'none');
+
+        const hasIncoming = externalRelationships.some(
+          (relationship) => relationship.target === state.focusedNodeId
+        );
+        const hasOutgoing = externalRelationships.some(
+          (relationship) => relationship.source === state.focusedNodeId
+        );
+        const groupAngle = hasIncoming && hasOutgoing
+          ? inwardAngle + Math.PI / 2
+          : hasIncoming ? inwardAngle : inwardAngle + Math.PI;
+        cy.add({
+          group: 'nodes',
+          data: {
+            id: externalGroupId,
+            canonicalCompanyId: externalGroupId,
+            companyName: `${externalMemberIds.length} Eksternal`,
+            fullName: `${externalMemberIds.length} perusahaan eksternal`,
+            nodeType: 'external',
+            isExternalGroup: true,
+            externalGroupOwnerId: state.focusedNodeId,
+            externalMemberIds,
+            size: 40,
+          },
+          position: {
+            x: anchorPosition.x + 138 * Math.cos(groupAngle),
+            y: anchorPosition.y + 138 * Math.sin(groupAngle),
+          },
+          classes: 'focus-supplemental external-group highlighted',
+        });
+      }
+
       let focusedEdges = cy.collection();
       relationships.forEach((relationship) => {
         const direction = relationship.source === state.focusedNodeId ? 'outgoing' : 'incoming';
+        if (externalRelationshipIds.has(relationship.id)) return;
         const existing = cy.edges(':visible').filter((edge) =>
           edge.data('canonicalEdgeId') === relationship.id
           && (targetIds.has(edge.source().id()) || targetIds.has(edge.target().id()))
@@ -432,6 +513,46 @@ export const NetworkGraph: React.FC = () => {
         });
         focusedEdges = focusedEdges.merge(edge);
       });
+
+      const addExternalGroupEdge = (
+        direction: 'incoming' | 'outgoing',
+        groupedRelationships: typeof externalRelationships
+      ) => {
+        if (groupedRelationships.length === 0 || externalMemberIds.length === 0) return;
+        const source = direction === 'incoming' ? externalGroupId : anchor.id();
+        const target = direction === 'incoming' ? anchor.id() : externalGroupId;
+        const edge = cy.add({
+          group: 'edges',
+          data: {
+            id: `${externalGroupId}:${direction}`,
+            source,
+            target,
+            invoiceCount: groupedRelationships.reduce(
+              (total, relationship) => total + relationship.invoiceCount,
+              0
+            ),
+            totalDPP: groupedRelationships.reduce(
+              (total, relationship) => total + relationship.totalDPP,
+              0
+            ),
+            width: 2.5,
+            isExternalGroup: true,
+            externalGroupOwnerId: state.focusedNodeId,
+            externalMemberIds,
+          },
+          classes: `sfi-edge focus-supplemental external-group-edge ${direction} highlighted`,
+        });
+        focusedEdges = focusedEdges.merge(edge);
+      };
+
+      addExternalGroupEdge(
+        'incoming',
+        externalRelationships.filter((relationship) => relationship.target === state.focusedNodeId)
+      );
+      addExternalGroupEdge(
+        'outgoing',
+        externalRelationships.filter((relationship) => relationship.source === state.focusedNodeId)
+      );
 
       const connectedEdges = targets.connectedEdges(':visible').merge(focusedEdges);
       const relatedNodes = connectedEdges.connectedNodes().add(targets);

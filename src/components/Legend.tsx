@@ -53,6 +53,10 @@ export const Legend: React.FC = () => {
             <div className="legend-shape node-replacement"></div>
             <span>Hub Pengganti</span>
           </div>
+          <div className="legend-item">
+            <div className="legend-shape node-external-group"></div>
+            <span>Kelompok Eksternal</span>
+          </div>
         </div>
       </div>
 

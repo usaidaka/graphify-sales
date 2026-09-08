@@ -5,6 +5,7 @@ import { CompanyExplorer } from './components/CompanyExplorer';
 import { StatisticsPanel } from './components/StatisticsPanel';
 import { RelationshipDetailPanel } from './components/RelationshipDetailPanel';
 import { CompanyDetailPanel } from './components/CompanyDetailPanel';
+import { ExternalGroupDetailPanel } from './components/ExternalGroupDetailPanel';
 import { Legend } from './components/Legend';
 import { useUI } from './context/UIContext';
 import './App.css';
@@ -53,6 +54,7 @@ function App() {
           <StatisticsPanel />
           <RelationshipDetailPanel />
           <CompanyDetailPanel />
+          <ExternalGroupDetailPanel />
         </div>
 
       </div>

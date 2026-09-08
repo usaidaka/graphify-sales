@@ -28,6 +28,10 @@ _Avoid_: Initials match, inferred internal company
 A direct purchase or sale involving the selected company. Focused Relationships may reveal counterparties outside the SFI distribution path or current internal-only overview while retaining all active transaction filters.
 _Avoid_: Permanent overview branch
 
+**External Counterparty Group**:
+A temporary visual summary of the ordinary external companies revealed by focusing a company. It reports the number of represented companies and expands to their names and transaction roles when selected; import, special-external, distributor, and WAPU companies remain distinct.
+_Avoid_: External company, merged company
+
 **Import Company**:
 The endpoint of a transaction whose own tax identifier marks it as an import party. The domestic counterparty does not become an Import Company merely because it participates in the same transaction.
 _Avoid_: Import transaction participant

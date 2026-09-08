@@ -231,6 +231,21 @@ export const graphStyles: any = [
     }
   },
   {
+    selector: 'node.external-group',
+    style: {
+      'width': 88,
+      'height': 40,
+      'shape': 'round-rectangle',
+      'background-color': '#334155',
+      'border-color': '#cbd5e1',
+      'border-width': 3,
+      'font-size': '12px',
+      'font-weight': 'bold',
+      'text-wrap': 'wrap',
+      'text-max-width': '78px'
+    }
+  },
+  {
     selector: 'edge.focus-supplemental',
     style: {
       'curve-style': 'straight',

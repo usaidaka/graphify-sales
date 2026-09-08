@@ -8,11 +8,17 @@ export type UniverseMode = 'active' | 'cancelled-replaced';
 export type FocusSortMetric = 'total-omzet' | 'invoice-count';
 export type PeriodFilter = number | 'all';
 
+export interface FocusedExternalGroup {
+  ownerId: string;
+  memberIds: string[];
+}
+
 export interface UIState {
   activeLayers: Set<DatasetName>;
   scopeFilter: ScopeFilter;
   universeMode: UniverseMode;
   focusedNodeId: string | null;
+  focusedExternalGroup: FocusedExternalGroup | null;
   selectedEdgeId: string | null;
   searchQuery: string;
   focusSortMetric: FocusSortMetric;
@@ -29,6 +35,8 @@ type UIAction =
   | { type: 'SET_SCOPE_FILTER'; payload: ScopeFilter }
   | { type: 'SET_UNIVERSE_MODE'; payload: UniverseMode }
   | { type: 'SET_FOCUS_NODE'; payload: string }
+  | { type: 'SHOW_EXTERNAL_GROUP'; payload: FocusedExternalGroup }
+  | { type: 'CLEAR_EXTERNAL_GROUP' }
   | { type: 'CLEAR_FOCUS' }
   | { type: 'SELECT_EDGE'; payload: string }
   | { type: 'CLEAR_EDGE_SELECTION' }
@@ -46,6 +54,7 @@ const initialState: UIState = {
   scopeFilter: 'with-external',
   universeMode: 'active',
   focusedNodeId: null,
+  focusedExternalGroup: null,
   selectedEdgeId: null,
   searchQuery: '',
   focusSortMetric: DEFAULT_FOCUS_SORT_METRIC,
@@ -66,18 +75,26 @@ function uiReducer(state: UIState, action: UIAction): UIState {
       } else {
         newLayers.add(action.payload);
       }
-      return { ...state, activeLayers: newLayers };
+      return {
+        ...state,
+        activeLayers: newLayers,
+        focusedExternalGroup: null,
+      };
     }
     case 'SET_SCOPE_FILTER':
-      return { ...state, scopeFilter: action.payload, focusedNodeId: null, selectedEdgeId: null };
+      return { ...state, scopeFilter: action.payload, focusedNodeId: null, focusedExternalGroup: null, selectedEdgeId: null };
     case 'SET_UNIVERSE_MODE':
-      return { ...state, universeMode: action.payload, focusedNodeId: null, selectedEdgeId: null };
+      return { ...state, universeMode: action.payload, focusedNodeId: null, focusedExternalGroup: null, selectedEdgeId: null };
     case 'SET_FOCUS_NODE':
-      return { ...state, focusedNodeId: action.payload, selectedEdgeId: null, searchQuery: '' };
+      return { ...state, focusedNodeId: action.payload, focusedExternalGroup: null, selectedEdgeId: null, searchQuery: '' };
+    case 'SHOW_EXTERNAL_GROUP':
+      return { ...state, focusedExternalGroup: action.payload, selectedEdgeId: null };
+    case 'CLEAR_EXTERNAL_GROUP':
+      return { ...state, focusedExternalGroup: null };
     case 'CLEAR_FOCUS':
-      return { ...state, focusedNodeId: null };
+      return { ...state, focusedNodeId: null, focusedExternalGroup: null };
     case 'SELECT_EDGE':
-      return { ...state, selectedEdgeId: action.payload, focusedNodeId: null, searchQuery: '' };
+      return { ...state, selectedEdgeId: action.payload, focusedNodeId: null, focusedExternalGroup: null, searchQuery: '' };
     case 'CLEAR_EDGE_SELECTION':
       return { ...state, selectedEdgeId: null };
     case 'SET_SEARCH':
@@ -97,6 +114,7 @@ function uiReducer(state: UIState, action: UIAction): UIState {
               ? action.payload
               : state.yearTo,
         focusedNodeId: null,
+        focusedExternalGroup: null,
         selectedEdgeId: null,
       };
     case 'SET_YEAR_TO':
@@ -112,6 +130,7 @@ function uiReducer(state: UIState, action: UIAction): UIState {
               ? action.payload
               : state.yearFrom,
         focusedNodeId: null,
+        focusedExternalGroup: null,
         selectedEdgeId: null,
       };
     case 'SET_SAME_YEAR': {
@@ -122,6 +141,7 @@ function uiReducer(state: UIState, action: UIAction): UIState {
         yearFrom: action.payload ? selectedYear : state.yearFrom,
         yearTo: action.payload ? selectedYear : state.yearTo,
         focusedNodeId: null,
+        focusedExternalGroup: null,
         selectedEdgeId: null,
       };
     }
@@ -130,6 +150,7 @@ function uiReducer(state: UIState, action: UIAction): UIState {
         ...state,
         selectedMonth: action.payload,
         focusedNodeId: null,
+        focusedExternalGroup: null,
         selectedEdgeId: null,
       };
     case 'SET_TRANSACTION_VIEW':
@@ -137,6 +158,7 @@ function uiReducer(state: UIState, action: UIAction): UIState {
         ...state,
         transactionView: action.payload,
         focusedNodeId: null,
+        focusedExternalGroup: null,
         selectedEdgeId: null,
       };
     case 'SET_SFI_LAYOUT_MODE':
@@ -144,6 +166,7 @@ function uiReducer(state: UIState, action: UIAction): UIState {
         ...state,
         sfiLayoutMode: action.payload,
         focusedNodeId: null,
+        focusedExternalGroup: null,
         selectedEdgeId: null,
       };
     default:
