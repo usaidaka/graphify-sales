@@ -17,6 +17,7 @@ describe('partitionFocusedRelationships', () => {
     const relationships: EdgeData[] = [
       edge('aps-svk', 'aps', 'svk'),
       edge('nf-svk', 'nf', 'svk'),
+      edge('svk-nf', 'svk', 'nf'),
       edge('import-svk', 'import', 'svk'),
       edge('svk-bca', 'svk', 'bca'),
     ];
@@ -24,7 +25,13 @@ describe('partitionFocusedRelationships', () => {
     const result = partitionFocusedRelationships(graph, 'svk', relationships);
 
     expect(result.externalMemberIds).toEqual(['aps', 'nf']);
-    expect(result.externalRelationships.map(({ id }) => id)).toEqual(['aps-svk', 'nf-svk']);
+    expect(result.externalRelationships.map(({ id }) => id)).toEqual([
+      'aps-svk',
+      'nf-svk',
+      'svk-nf',
+    ]);
+    expect(result.incomingExternalMemberIds).toEqual(['aps', 'nf']);
+    expect(result.outgoingExternalMemberIds).toEqual(['nf']);
     expect(result.individualRelationships.map(({ id }) => id)).toEqual([
       'import-svk',
       'svk-bca',

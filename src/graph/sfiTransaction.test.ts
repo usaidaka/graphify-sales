@@ -379,6 +379,41 @@ describe('buildSfiTransactionOverview', () => {
   })
 })
 
+describe('calculateSfiPositions', () => {
+  it('keeps a dense overview compact when compact hierarchy is requested', () => {
+    const children = Array.from({ length: 120 }, (_, index): NodeData => ({
+      id: `child-${index}`,
+      companyName: `External Company ${index}`,
+      nodeType: 'external',
+    }))
+    const data: NormalizedGraph = {
+      nodes: [nodes[0], nodes[1], ...children],
+      edges: [
+        edge('sfi-ldn', 'sfi', 'ldn', 1_000),
+        ...children.map((child, index) => edge(
+          `ldn-${child.id}`,
+          'ldn',
+          child.id,
+          900 - index,
+        )),
+      ],
+    }
+    const result = createSfiTransactionOverview(data, 'sales')
+    const regular = calculateSfiPositions(result, 'hierarchy', 1920, 1080)
+    const compact = calculateSfiPositions(result, 'hierarchy', 1920, 1080, {
+      compactHierarchy: true,
+    })
+    const maximumRadius = (positions: Map<string, { x: number; y: number }>) => {
+      const center = positions.get(result.sfiInstanceId!)!
+      return Math.max(...[...positions.values()].map((position) => (
+        Math.hypot(position.x - center.x, position.y - center.y)
+      )))
+    }
+
+    expect(maximumRadius(compact)).toBeLessThan(maximumRadius(regular) * 0.6)
+  })
+})
+
 describe('buildSfiCytoscapeElements', () => {
   it('uses unique visual IDs while preserving canonical node and edge identity', () => {
     const data = graph([

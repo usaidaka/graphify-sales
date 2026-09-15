@@ -11,6 +11,7 @@ export type PeriodFilter = number | 'all';
 export interface FocusedExternalGroup {
   ownerId: string;
   memberIds: string[];
+  direction: 'incoming' | 'outgoing';
 }
 
 export interface UIState {
