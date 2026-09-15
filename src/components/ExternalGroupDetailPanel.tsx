@@ -19,18 +19,15 @@ export const ExternalGroupDetailPanel: React.FC = () => {
       const node = relationshipGraph.nodes.find((candidate) => candidate.id === memberId);
       if (!node) return [];
       const edges = relationshipGraph.edges.filter((edge) =>
-        (edge.source === group.ownerId && edge.target === memberId)
-        || (edge.source === memberId && edge.target === group.ownerId)
+        group.direction === 'incoming'
+          ? edge.source === memberId && edge.target === group.ownerId
+          : edge.source === group.ownerId && edge.target === memberId
       );
-      const isSupplier = edges.some((edge) => edge.target === group.ownerId);
-      const isCustomer = edges.some((edge) => edge.source === group.ownerId);
       return [{
         id: memberId,
         name: node.companyName,
         fullName: node.fullName,
-        role: isSupplier && isCustomer
-          ? 'Pemasok & pelanggan'
-          : isSupplier ? 'Pemasok' : 'Pelanggan',
+        role: group.direction === 'incoming' ? 'Pemasok' : 'Pelanggan',
         invoiceCount: edges.reduce((total, edge) => total + edge.invoiceCount, 0),
         totalDPP: edges.reduce((total, edge) => total + edge.totalDPP, 0),
       }];
@@ -45,7 +42,9 @@ export const ExternalGroupDetailPanel: React.FC = () => {
   return (
     <div className="detail-panel external-group-panel glass-panel">
       <div className="panel-header">
-        <h2>Perusahaan Eksternal</h2>
+        <h2>
+          {group.direction === 'incoming' ? 'Pemasok Eksternal' : 'Pelanggan Eksternal'}
+        </h2>
         <button
           type="button"
           className="close-button"
@@ -61,7 +60,8 @@ export const ExternalGroupDetailPanel: React.FC = () => {
             {detail.members.length} perusahaan
           </div>
           <div className="external-group-context">
-            Relasi langsung dengan {detail.owner?.companyName ?? group.ownerId}
+            {group.direction === 'incoming' ? 'Memasok ke' : 'Membeli dari'}{' '}
+            {detail.owner?.companyName ?? group.ownerId}
           </div>
         </div>
 

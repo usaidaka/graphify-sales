@@ -128,6 +128,8 @@ export const graphStyles: any = [
       'text-background-opacity': 0.9,
       'text-background-padding': '4px',
       'text-background-shape': 'roundrectangle',
+      'text-margin-y': 'data(badgeOffset)',
+      'text-rotation': 'autorotate',
       'line-color': '#059669',
       'target-arrow-color': '#059669',
       'curve-style': 'straight',
@@ -147,6 +149,8 @@ export const graphStyles: any = [
       'text-background-opacity': 0.9,
       'text-background-padding': '4px',
       'text-background-shape': 'roundrectangle',
+      'text-margin-y': 'data(badgeOffset)',
+      'text-rotation': 'autorotate',
       'line-color': '#ea580c',
       'target-arrow-color': '#ea580c',
       'curve-style': 'straight',
@@ -198,6 +202,8 @@ export const graphStyles: any = [
     style: {
       'width': 1.5,
       'curve-style': 'straight',
+      'source-distance-from-node': 4,
+      'target-distance-from-node': 7,
       'opacity': 0.72
     }
   },
@@ -231,18 +237,27 @@ export const graphStyles: any = [
     }
   },
   {
+    selector: 'node.focused-anchor',
+    style: {
+      'opacity': 1,
+      'border-width': 5,
+      'border-color': '#60a5fa',
+      'z-index': 30
+    }
+  },
+  {
     selector: 'node.external-group',
     style: {
-      'width': 88,
-      'height': 40,
-      'shape': 'round-rectangle',
+      'width': 48,
+      'height': 48,
+      'shape': 'ellipse',
       'background-color': '#334155',
       'border-color': '#cbd5e1',
       'border-width': 3,
-      'font-size': '12px',
+      'font-size': '14px',
       'font-weight': 'bold',
-      'text-wrap': 'wrap',
-      'text-max-width': '78px'
+      'text-wrap': 'none',
+      'z-index': 28
     }
   },
   {

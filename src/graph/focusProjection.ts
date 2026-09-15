@@ -4,6 +4,10 @@ export interface FocusedRelationshipPartition {
   externalRelationships: EdgeData[];
   individualRelationships: EdgeData[];
   externalMemberIds: string[];
+  incomingExternalRelationships: EdgeData[];
+  outgoingExternalRelationships: EdgeData[];
+  incomingExternalMemberIds: string[];
+  outgoingExternalMemberIds: string[];
 }
 
 /**
@@ -31,13 +35,27 @@ export function partitionFocusedRelationships(
     }
   });
 
-  return {
-    externalRelationships,
-    individualRelationships,
-    externalMemberIds: [...new Set(externalRelationships.map((relationship) =>
+  const incomingExternalRelationships = externalRelationships.filter(
+    (relationship) => relationship.target === focusedNodeId
+  );
+  const outgoingExternalRelationships = externalRelationships.filter(
+    (relationship) => relationship.source === focusedNodeId
+  );
+  const counterpartIds = (groupedRelationships: EdgeData[]) => [...new Set(
+    groupedRelationships.map((relationship) => (
       relationship.source === focusedNodeId
         ? relationship.target
         : relationship.source
-    ))],
+    ))
+  )];
+
+  return {
+    externalRelationships,
+    individualRelationships,
+    externalMemberIds: counterpartIds(externalRelationships),
+    incomingExternalRelationships,
+    outgoingExternalRelationships,
+    incomingExternalMemberIds: counterpartIds(incomingExternalRelationships),
+    outgoingExternalMemberIds: counterpartIds(outgoingExternalRelationships),
   };
 }

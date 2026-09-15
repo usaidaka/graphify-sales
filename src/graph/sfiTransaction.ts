@@ -1,4 +1,10 @@
 import type { EdgeData, NodeData, NormalizedGraph } from './types';
+import {
+  hasVisualCollisions,
+  layoutRadialLevels,
+  type RadialLayoutNode,
+  type VisualSize,
+} from './radialLayout';
 
 export type TransactionView = 'sales' | 'purchases';
 export type SfiLayoutMode = 'hierarchy' | 'value';
@@ -70,6 +76,11 @@ export interface SfiTransactionOverview {
 export interface SfiPosition {
   x: number;
   y: number;
+}
+
+export interface SfiLayoutOptions {
+  nodeSizes?: ReadonlyMap<string, VisualSize>;
+  terminalInsideNodeIds?: ReadonlySet<string>;
 }
 
 interface CanonicalAnalysis {
@@ -952,7 +963,8 @@ export function calculateSfiPositions(
   overview: SfiTransactionOverview,
   mode: SfiLayoutMode,
   width: number,
-  height: number
+  height: number,
+  options: SfiLayoutOptions = {}
 ): Map<string, SfiPosition> {
   const center = { x: Math.max(width, 720) / 2, y: Math.max(height, 520) / 2 };
   const positions = new Map<string, SfiPosition>();
@@ -968,19 +980,58 @@ export function calculateSfiPositions(
     );
 
   if (mode === 'hierarchy') {
-    ordered.forEach((nodeId) => {
-      const level = overview.levelByNode.get(nodeId) ?? 1;
-      const levelCount = ordered.filter((id) => overview.levelByNode.get(id) === level).length;
-      const collisionRadius = (levelCount * 62) / (2 * Math.PI);
-      const radius = Math.max(level * HIERARCHY_LEVEL_GAP, collisionRadius);
-      const angle = angles.get(nodeId) ?? 0;
-      positions.set(nodeId, {
-        x: center.x + radius * Math.cos(angle),
-        y: center.y + radius * Math.sin(angle),
+    const visualLevelByNode = new Map(overview.levelByNode);
+    const branchIds = new Set(ordered.map((nodeId) => (
+      overview.branchRootByNode.get(nodeId) ?? nodeId
+    )));
+    branchIds.forEach((branchId) => {
+      const branchInsideIds = ordered.filter((nodeId) => (
+        (overview.branchRootByNode.get(nodeId) ?? nodeId) === branchId
+        && overview.insideBoundaryNodeIds.has(nodeId)
+      ));
+      const deepestInsideLevel = Math.max(
+        1,
+        ...branchInsideIds.map((nodeId) => visualLevelByNode.get(nodeId) ?? 1)
+      );
+      branchInsideIds.forEach((nodeId) => {
+        if (!options.terminalInsideNodeIds?.has(nodeId)) return;
+        visualLevelByNode.set(
+          nodeId,
+          Math.max(visualLevelByNode.get(nodeId) ?? 1, deepestInsideLevel)
+        );
       });
     });
+
+    const layoutNodes: RadialLayoutNode[] = ordered.map((nodeId) => {
+      const size = options.nodeSizes?.get(nodeId) ?? { width: 52, height: 32 };
+      return {
+        id: nodeId,
+        branchId: overview.branchRootByNode.get(nodeId) ?? nodeId,
+        level: visualLevelByNode.get(nodeId) ?? 1,
+        preferredAngle: angles.get(nodeId) ?? 0,
+        ...size,
+      };
+    });
+    const branchAngles = new Map<string, number>();
+    layoutNodes.forEach((node) => {
+      if (!branchAngles.has(node.branchId)) {
+        branchAngles.set(node.branchId, rootAngles.get(node.branchId) ?? node.preferredAngle);
+      }
+    });
+    const radialLayout = layoutRadialLevels({
+      center,
+      nodes: layoutNodes,
+      branchAngles,
+      minimumFirstRadius: HIERARCHY_LEVEL_GAP,
+    });
+    radialLayout.positions.forEach((position, nodeId) => positions.set(nodeId, position));
     moveNonInternalNodesOutsideBoundary(overview, positions, center);
+    const beforeCrossingOptimization = new Map(positions);
     minimizeHierarchyCrossings(overview, positions);
+    if (hasVisualCollisions(layoutNodes, positions)) {
+      positions.clear();
+      beforeCrossingOptimization.forEach((position, nodeId) => positions.set(nodeId, position));
+    }
     return positions;
   }
 
