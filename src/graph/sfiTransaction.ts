@@ -81,6 +81,7 @@ export interface SfiPosition {
 export interface SfiLayoutOptions {
   nodeSizes?: ReadonlyMap<string, VisualSize>;
   terminalInsideNodeIds?: ReadonlySet<string>;
+  compactHierarchy?: boolean;
 }
 
 interface CanonicalAnalysis {
@@ -1001,6 +1002,28 @@ export function calculateSfiPositions(
         );
       });
     });
+
+    if (options.compactHierarchy) {
+      const countByLevel = new Map<number, number>();
+      ordered.forEach((nodeId) => {
+        const level = visualLevelByNode.get(nodeId) ?? 1;
+        countByLevel.set(level, (countByLevel.get(level) ?? 0) + 1);
+      });
+      ordered.forEach((nodeId) => {
+        const level = visualLevelByNode.get(nodeId) ?? 1;
+        const levelCount = countByLevel.get(level) ?? 1;
+        const collisionRadius = (levelCount * 62) / (2 * Math.PI);
+        const radius = Math.max(level * HIERARCHY_LEVEL_GAP, collisionRadius);
+        const angle = angles.get(nodeId) ?? 0;
+        positions.set(nodeId, {
+          x: center.x + radius * Math.cos(angle),
+          y: center.y + radius * Math.sin(angle),
+        });
+      });
+      moveNonInternalNodesOutsideBoundary(overview, positions, center);
+      minimizeHierarchyCrossings(overview, positions);
+      return positions;
+    }
 
     const layoutNodes: RadialLayoutNode[] = ordered.map((nodeId) => {
       const size = options.nodeSizes?.get(nodeId) ?? { width: 52, height: 32 };

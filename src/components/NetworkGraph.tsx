@@ -25,7 +25,10 @@ import {
 } from '../graph/radialLayout';
 import './NetworkGraph.css';
 
-function collectLayoutOptions(cy: cytoscape.Core): SfiLayoutOptions {
+function collectLayoutOptions(
+  cy: cytoscape.Core,
+  compactHierarchy = false
+): SfiLayoutOptions {
   const nodeSizes = new Map<string, VisualSize>();
   const terminalInsideNodeIds = new Set<string>();
   cy.nodes().forEach((node) => {
@@ -39,7 +42,7 @@ function collectLayoutOptions(cy: cytoscape.Core): SfiLayoutOptions {
       terminalInsideNodeIds.add(node.id());
     }
   });
-  return { nodeSizes, terminalInsideNodeIds };
+  return { nodeSizes, terminalInsideNodeIds, compactHierarchy };
 }
 
 function nodeVisualSize(node: cytoscape.NodeSingular): VisualSize {
@@ -71,14 +74,15 @@ function applySfiLayout(
   cy: cytoscape.Core,
   overview: SfiTransactionOverview,
   mode: SfiLayoutMode,
-  setPositions = true
+  setPositions = true,
+  compactHierarchy = false
 ): cytoscape.CollectionReturnValue {
   const positions = calculateSfiPositions(
     overview,
     mode,
     cy.width(),
     cy.height(),
-    collectLayoutOptions(cy)
+    collectLayoutOptions(cy, compactHierarchy)
   );
 
   cy.batch(() => {
@@ -171,14 +175,6 @@ function arcPath(
   return `M ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArc ? 1 : 0} 1 ${end.x} ${end.y}`;
 }
 
-function sameAngle(first: number, second: number): boolean {
-  const fullTurn = 2 * Math.PI;
-  const difference = Math.abs(
-    ((first - second + Math.PI) % fullTurn + fullTurn) % fullTurn - Math.PI
-  );
-  return difference < 0.001;
-}
-
 function expansionStartProgress(
   previous: FocusSectorExpansion | null,
   next: FocusSectorExpansion | null
@@ -259,15 +255,6 @@ function renderSectorGuide(
     );
     overlay.append(activeArc);
 
-    [startAngle, endAngle].forEach((angle) => {
-      const connector = document.createElementNS(SVG_NAMESPACE, 'line');
-      connector.setAttribute('class', 'sfi-sector-divider sfi-sector-expansion-connector');
-      connector.setAttribute('x1', String(center.x + baseOuterRadius * Math.cos(angle)));
-      connector.setAttribute('y1', String(center.y + baseOuterRadius * Math.sin(angle)));
-      connector.setAttribute('x2', String(center.x + activeOuterRadius * Math.cos(angle)));
-      connector.setAttribute('y2', String(center.y + activeOuterRadius * Math.sin(angle)));
-      overlay.append(connector);
-    });
   }
 
   const innerCircle = document.createElementNS(SVG_NAMESPACE, 'circle');
@@ -279,18 +266,12 @@ function renderSectorGuide(
 
   activeSlots.forEach((slot, index) => {
     const boundaryAngle = -Math.PI + sectorSize * index;
-    const isExpandedBoundary = expandedSlot
-      && (
-        sameAngle(boundaryAngle, expandedSlot.angle - sectorSize / 2)
-        || sameAngle(boundaryAngle, expandedSlot.angle + sectorSize / 2)
-      );
-    const dividerRadius = isExpandedBoundary ? activeOuterRadius : baseOuterRadius;
     const divider = document.createElementNS(SVG_NAMESPACE, 'line');
     divider.setAttribute('class', 'sfi-sector-divider');
     divider.setAttribute('x1', String(center.x + innerRadius * Math.cos(boundaryAngle)));
     divider.setAttribute('y1', String(center.y + innerRadius * Math.sin(boundaryAngle)));
-    divider.setAttribute('x2', String(center.x + dividerRadius * Math.cos(boundaryAngle)));
-    divider.setAttribute('y2', String(center.y + dividerRadius * Math.sin(boundaryAngle)));
+    divider.setAttribute('x2', String(center.x + baseOuterRadius * Math.cos(boundaryAngle)));
+    divider.setAttribute('y2', String(center.y + baseOuterRadius * Math.sin(boundaryAngle)));
     overlay.append(divider);
 
     const labelRadius = Math.max(innerRadius + 24, baseOuterRadius - 18);
@@ -310,6 +291,7 @@ export const NetworkGraph: React.FC = () => {
   const cyRef = useRef<cytoscape.Core | null>(null);
   const overviewRef = useRef<SfiTransactionOverview | null>(null);
   const layoutModeRef = useRef<SfiLayoutMode>('hierarchy');
+  const compactHierarchyRef = useRef(false);
   const focusedOccurrenceRef = useRef<string | null>(null);
   const focusAnimationFrameRef = useRef(0);
   const focusAnimationTimeoutRef = useRef(0);
@@ -320,6 +302,7 @@ export const NetworkGraph: React.FC = () => {
   const [layoutRunning, setLayoutRunning] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [overviewSummary, setOverviewSummary] = useState<OverviewSummary>(EMPTY_SUMMARY);
+  compactHierarchyRef.current = state.yearFrom === 'all' && state.yearTo === 'all';
 
   useEffect(() => {
     if (loading || !graph || !containerRef.current) return;
@@ -410,7 +393,13 @@ export const NetworkGraph: React.FC = () => {
       if (cy) {
         focusExpansionRef.current = null;
         cy.resize();
-        const visibleElements = applySfiLayout(cy, overview, state.sfiLayoutMode);
+        const visibleElements = applySfiLayout(
+          cy,
+          overview,
+          state.sfiLayoutMode,
+          true,
+          compactHierarchyRef.current
+        );
         if (visibleElements.length > 0) cy.fit(visibleElements, 58);
         if (sectorOverlayRef.current) {
           renderSectorGuide(cy, overview, sectorOverlayRef.current);
@@ -440,7 +429,13 @@ export const NetworkGraph: React.FC = () => {
         cy.resize();
         const visibleElements = focusExpansionRef.current
           ? cy.elements(':visible')
-          : applySfiLayout(cy, overview, layoutModeRef.current);
+          : applySfiLayout(
+              cy,
+              overview,
+              layoutModeRef.current,
+              true,
+              compactHierarchyRef.current
+            );
         if (visibleElements.length > 0) cy.fit(visibleElements, 58);
         if (sectorOverlayRef.current) {
           renderSectorGuide(cy, overview, sectorOverlayRef.current, focusExpansionRef.current);
@@ -464,7 +459,13 @@ export const NetworkGraph: React.FC = () => {
         cy.resize();
         const visibleElements = focusExpansionRef.current
           ? cy.elements(':visible')
-          : applySfiLayout(cy, overview, layoutModeRef.current);
+          : applySfiLayout(
+              cy,
+              overview,
+              layoutModeRef.current,
+              true,
+              compactHierarchyRef.current
+            );
         if (visibleElements.length > 0) cy.fit(visibleElements, 58);
         if (sectorOverlayRef.current) {
           renderSectorGuide(cy, overview, sectorOverlayRef.current, focusExpansionRef.current);
@@ -490,11 +491,17 @@ export const NetworkGraph: React.FC = () => {
       layoutModeRef.current,
       cy.width(),
       cy.height(),
-      collectLayoutOptions(cy)
+      collectLayoutOptions(cy, compactHierarchyRef.current)
     );
     const previousExpansion = focusExpansionRef.current;
     cy.elements('.focus-supplemental').remove();
-    const baseVisibleElements = applySfiLayout(cy, overview, layoutModeRef.current, false);
+    const baseVisibleElements = applySfiLayout(
+      cy,
+      overview,
+      layoutModeRef.current,
+      false,
+      compactHierarchyRef.current
+    );
 
     const targetViewportFor = (
       elements: cytoscape.CollectionReturnValue,
