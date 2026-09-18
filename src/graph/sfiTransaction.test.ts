@@ -381,7 +381,71 @@ describe('buildSfiTransactionOverview', () => {
 })
 
 describe('calculateSfiPositions', () => {
-  it('keeps a dense overview compact when compact hierarchy is requested', () => {
+  it('places a two-stage branch directly from its hub to BCA as the endpoint', () => {
+    const result = createSfiTransactionOverview({
+      nodes: [
+        nodes[0],
+        nodes[1],
+        { id: 'bca', companyName: 'CV BCA', nodeType: 'special-external' },
+      ],
+      edges: [
+        edge('sfi-ldn', 'sfi', 'ldn', 100),
+        edge('ldn-bca', 'ldn', 'bca', 80),
+      ],
+    }, 'sales')
+    const hub = instancesFor(result, 'ldn')[0]
+    const bca = instancesFor(result, 'bca')[0]
+    const positions = calculateSfiPositions(result, 'hierarchy', 1200, 800, {
+      terminalInsideNodeIds: new Set([bca.id]),
+    })
+
+    expect(result.levelByNode.get(hub.id)).toBe(1)
+    expect(result.levelByNode.get(bca.id)).toBe(2)
+    expect(result.parentByNode.get(bca.id)).toBe(hub.id)
+    expect(distance(positions, result.sfiInstanceId!, bca.id))
+      .toBeGreaterThan(distance(positions, result.sfiInstanceId!, hub.id))
+  })
+
+  it('keeps BCA at the internal end and aligns external endpoints from different depths', () => {
+    const data: NormalizedGraph = {
+      nodes: [
+        ...nodes.map((company) => ['a', 'b'].includes(company.id)
+          ? { ...company, nodeType: 'internal' as const }
+          : company),
+        { id: 'bca', companyName: 'CV BCA', nodeType: 'special-external' },
+      ],
+      edges: [
+        edge('sfi-ldn', 'sfi', 'ldn', 100),
+        edge('ldn-a', 'ldn', 'a', 90),
+        edge('a-b', 'a', 'b', 80),
+        edge('ldn-bca', 'ldn', 'bca', 70),
+        edge('a-x', 'a', 'x', 60),
+        edge('b-y', 'b', 'y', 50),
+      ],
+    }
+    data.nodes.push({ id: 'y', companyName: 'Company Y', nodeType: 'external' })
+    const result = createSfiTransactionOverview(data, 'sales')
+    const bca = instancesFor(result, 'bca')[0]
+    const a = instancesFor(result, 'a')[0]
+    const b = instancesFor(result, 'b')[0]
+    const x = instancesFor(result, 'x')[0]
+    const y = instancesFor(result, 'y')[0]
+    for (const compactHierarchy of [false, true]) {
+      const positions = calculateSfiPositions(result, 'hierarchy', 1200, 800, {
+        terminalInsideNodeIds: new Set([bca.id]),
+        compactHierarchy,
+      })
+      const radius = (id: string) => distance(positions, result.sfiInstanceId!, id)
+
+      expect(radius(bca.id)).toBeGreaterThan(radius(a.id))
+      expect(radius(bca.id)).toBeCloseTo(radius(b.id))
+      expect(radius(x.id)).toBeCloseTo(radius(y.id))
+      expect(radius(x.id)).toBeGreaterThan(radius(a.id))
+      expect(radius(y.id)).toBeGreaterThan(radius(b.id))
+    }
+  })
+
+  it('keeps dense terminal externals in a short band beyond their parent', () => {
     const children = Array.from({ length: 120 }, (_, index): NodeData => ({
       id: `child-${index}`,
       companyName: `External Company ${index}`,
@@ -404,14 +468,17 @@ describe('calculateSfiPositions', () => {
     const compact = calculateSfiPositions(result, 'hierarchy', 1920, 1080, {
       compactHierarchy: true,
     })
-    const maximumRadius = (positions: Map<string, { x: number; y: number }>) => {
-      const center = positions.get(result.sfiInstanceId!)!
-      return Math.max(...[...positions.values()].map((position) => (
-        Math.hypot(position.x - center.x, position.y - center.y)
-      )))
-    }
+    const radius = (nodeId: string) => distance(compact, result.sfiInstanceId!, nodeId)
+    const terminalRadii = result.nodeInstances
+      .filter(({ canonicalCompanyId }) => canonicalCompanyId.startsWith('child-'))
+      .map(({ id }) => radius(id))
 
-    expect(maximumRadius(compact)).toBeLessThan(maximumRadius(regular) * 0.75)
+    const parentRadius = radius(instancesFor(result, 'ldn')[0].id)
+    expect(Math.min(...terminalRadii)).toBeGreaterThan(parentRadius)
+    expect(Math.max(...terminalRadii)).toBeLessThan(600)
+    expect(Math.max(...terminalRadii) - Math.min(...terminalRadii)).toBeLessThan(300)
+    expect(radius(instancesFor(result, 'child-0')[0].id))
+      .toBeLessThan(distance(regular, result.sfiInstanceId!, instancesFor(result, 'child-0')[0].id))
     expect(hasVisualCollisions(result.nodeInstances.map((instance) => ({
       ...instance,
       branchId: instance.branch,
@@ -419,6 +486,64 @@ describe('calculateSfiPositions', () => {
       width: 52,
       height: 32,
     })), regular, 12)).toBe(false)
+  })
+
+  it('draws one WAPU occurrence per seller without multiplying business entities', () => {
+    const data: NormalizedGraph = {
+      nodes: [
+        ...nodes,
+        { id: 'seller-a', companyName: 'Seller A', nodeType: 'internal' },
+        { id: 'seller-b', companyName: 'Seller B', nodeType: 'internal' },
+        { id: 'wapu', companyName: 'WAPU', nodeType: 'wapu' },
+      ],
+      edges: [
+        edge('sfi-ldn', 'sfi', 'ldn', 100),
+        edge('ldn-a', 'ldn', 'seller-a', 90),
+        edge('ldn-b', 'ldn', 'seller-b', 80),
+        edge('a-wapu', 'seller-a', 'wapu', 70),
+        edge('b-wapu', 'seller-b', 'wapu', 60),
+      ],
+    }
+    const result = createSfiTransactionOverview(data, 'sales')
+    const wapuNodes = instancesFor(result, 'wapu', 'LDN')
+    const wapuEdges = result.edgeInstances.filter(({ canonicalEdgeId }) =>
+      canonicalEdgeId === 'a-wapu' || canonicalEdgeId === 'b-wapu'
+    )
+
+    expect(wapuNodes).toHaveLength(2)
+    expect(new Set(wapuEdges.map(({ target }) => target))).toEqual(new Set(wapuNodes.map(({ id }) => id)))
+    expect(wapuEdges.every(({ source, target }) =>
+      result.parentByNode.get(target) === source
+      && result.levelByNode.get(target) === (result.levelByNode.get(source) ?? 0) + 1
+    )).toBe(true)
+    expect(wapuNodes.every(({ id }) => result.insideBoundaryNodeIds.has(id))).toBe(true)
+    expect(result.canonicalVisibleNodeIds.has('wapu')).toBe(true)
+    expect(result.canonicalVisibleEdgeIds.size).toBe(5)
+    const positions = calculateSfiPositions(result, 'hierarchy', 1200, 800)
+    expect(wapuEdges.every(({ source, target }) =>
+      distance(positions, result.sfiInstanceId!, target)
+        > distance(positions, result.sfiInstanceId!, source)
+    )).toBe(true)
+    expect(hasVisualCollisions(result.nodeInstances.map((instance) => ({
+      ...instance,
+      branchId: instance.branch,
+      preferredAngle: 0,
+      width: 52,
+      height: 32,
+    })), positions, 12)).toBe(false)
+  })
+
+  it('keeps a direct SFI to WAPU branch connected after creating its occurrence', () => {
+    const result = createSfiTransactionOverview({
+      nodes: [nodes[0], { id: 'wapu', companyName: 'WAPU', nodeType: 'wapu' }],
+      edges: [edge('sfi-wapu', 'sfi', 'wapu', 100)],
+    }, 'sales')
+    const occurrence = instancesFor(result, 'wapu')[0]
+
+    expect(result.branchSlots[0].hubInstanceId).toBe(occurrence.id)
+    expect(result.edgeInstances[0].target).toBe(occurrence.id)
+    expect(result.officialPrincipalIds.has(occurrence.id)).toBe(true)
+    expect(calculateSfiPositions(result, 'hierarchy', 1200, 800).has(occurrence.id)).toBe(true)
   })
 })
 

@@ -17,17 +17,19 @@ import { graphStyles } from '../graph/styles';
 import { partitionFocusedRelationships } from '../graph/focusProjection';
 import {
   RADIAL_LAYOUT_CONFIG,
-  layoutRadialLevels,
   radiusAt,
   visualSize,
-  type RadialLayoutNode,
   type VisualSize,
 } from '../graph/radialLayout';
+import {
+  placeFocusSupplements,
+  type FocusSupplement,
+  upstreamFocusClearance,
+} from '../graph/focusLayout';
 import './NetworkGraph.css';
 
 const SFI_OVERVIEW_NODE_DIAMETER = 38;
 const SFI_CENTER_NODE_DIAMETER = 56;
-const SFI_READABLE_ZOOM = 1;
 
 function collectLayoutOptions(
   cy: cytoscape.Core,
@@ -47,12 +49,6 @@ function collectLayoutOptions(
     }
   });
   return { nodeSizes, terminalInsideNodeIds, compactHierarchy };
-}
-
-function nodeVisualSize(node: cytoscape.NodeSingular): VisualSize {
-  const rawSize = Number(node.data('size') ?? 28);
-  const bodySize = Number.isFinite(rawSize) ? rawSize : 28;
-  return visualSize(bodySize, bodySize, String(node.data('companyName') ?? ''));
 }
 
 function internalBoundaryRadius(
@@ -135,20 +131,51 @@ function applySfiLayout(
   );
 }
 
-function fitReadableOverview(
+function fitOverview(
   cy: cytoscape.Core,
+  overview: SfiTransactionOverview,
   elements: cytoscape.CollectionReturnValue
 ) {
   if (elements.length === 0) return;
-  cy.fit(elements, 58);
-  if (cy.zoom() < SFI_READABLE_ZOOM) {
-    cy.zoom({
-      level: SFI_READABLE_ZOOM,
-      renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 },
-    });
-    const centerNode = cy.nodes('.sfi-center').first();
-    if (centerNode.length > 0) cy.center(centerNode);
+  const centerNode = overview.sfiInstanceId
+    ? cy.getElementById(overview.sfiInstanceId)
+    : cy.collection();
+  if (centerNode.length === 0) {
+    cy.fit(elements, 58);
+    return;
   }
+
+  const center = centerNode.position();
+  let guideRadius = SFI_INTERNAL_BOUNDARY_MIN_RADIUS;
+  overview.insideBoundaryNodeIds.forEach((nodeId) => {
+    const node = cy.getElementById(nodeId);
+    if (node.length === 0) return;
+    guideRadius = Math.max(
+      guideRadius,
+      Math.hypot(node.position().x - center.x, node.position().y - center.y)
+        + SFI_INTERNAL_BOUNDARY_PADDING
+    );
+  });
+  const bounds = elements.boundingBox();
+  const radius = Math.max(
+    guideRadius,
+    center.x - bounds.x1,
+    bounds.x2 - center.x,
+    center.y - bounds.y1,
+    bounds.y2 - center.y
+  );
+  const padding = 58;
+  const zoom = Math.min(cy.maxZoom(), Math.max(cy.minZoom(), Math.min(
+    (cy.width() - 2 * padding) / (2 * radius),
+    (cy.height() - 2 * padding) / (2 * radius)
+  )));
+  cy.viewport({
+    zoom,
+    pan: {
+      x: cy.width() / 2 - center.x * zoom,
+      y: cy.height() / 2 - center.y * zoom,
+    },
+  });
 }
 
 interface OverviewSummary {
@@ -301,29 +328,37 @@ function renderSectorGuide(
     overlay.append(divider);
   });
 
-  const hoveredSlot = activeSlots.find(
-    (slot) => slot.hubInstanceId === overlay.dataset.hoveredSlotId
-  );
-  if (hoveredSlot) {
-    const startAngle = hoveredSlot.angle - sectorSize / 2;
-    const endAngle = hoveredSlot.angle + sectorSize / 2;
-    const outerRadius = hoveredSlot.hubInstanceId === expandedSlot?.hubInstanceId
-      ? activeOuterRadius
-      : baseOuterRadius;
+  const appendSectorOutline = (
+    slot: typeof activeSlots[number],
+    outerRadius: number,
+    className: string
+  ) => {
+    const startAngle = slot.angle - sectorSize / 2;
+    const endAngle = slot.angle + sectorSize / 2;
     const arc = document.createElementNS(SVG_NAMESPACE, 'path');
-    arc.setAttribute('class', 'sfi-sector-hover-outline');
+    arc.setAttribute('class', className);
     arc.setAttribute('d', arcPath(center, outerRadius, startAngle, endAngle, sectorSize > Math.PI));
     overlay.append(arc);
 
     [startAngle, endAngle].forEach((angle) => {
       const divider = document.createElementNS(SVG_NAMESPACE, 'line');
-      divider.setAttribute('class', 'sfi-sector-hover-outline');
+      divider.setAttribute('class', className);
       divider.setAttribute('x1', String(center.x + innerRadius * Math.cos(angle)));
       divider.setAttribute('y1', String(center.y + innerRadius * Math.sin(angle)));
       divider.setAttribute('x2', String(center.x + outerRadius * Math.cos(angle)));
       divider.setAttribute('y2', String(center.y + outerRadius * Math.sin(angle)));
       overlay.append(divider);
     });
+  };
+
+  if (expandedSlot) {
+    appendSectorOutline(expandedSlot, activeOuterRadius, 'sfi-sector-hover-outline');
+  }
+  const hoveredSlot = activeSlots.find(
+    (slot) => slot.hubInstanceId === overlay.dataset.hoveredSlotId
+  );
+  if (hoveredSlot && hoveredSlot !== expandedSlot) {
+    appendSectorOutline(hoveredSlot, baseOuterRadius, 'sfi-sector-hover-outline');
   }
 }
 
@@ -443,7 +478,7 @@ export const NetworkGraph: React.FC = () => {
           true,
           compactHierarchyRef.current
         );
-        fitReadableOverview(cy, visibleElements);
+        fitOverview(cy, overview, visibleElements);
         if (sectorOverlayRef.current) {
           renderSectorGuide(cy, overview, sectorOverlayRef.current);
         }
@@ -531,7 +566,8 @@ export const NetworkGraph: React.FC = () => {
               true,
               compactHierarchyRef.current
             );
-        fitReadableOverview(cy, visibleElements);
+        if (focusExpansionRef.current) cy.fit(visibleElements, 58);
+        else fitOverview(cy, overview, visibleElements);
         if (sectorOverlayRef.current) {
           renderSectorGuide(cy, overview, sectorOverlayRef.current, focusExpansionRef.current);
         }
@@ -561,7 +597,8 @@ export const NetworkGraph: React.FC = () => {
               true,
               compactHierarchyRef.current
             );
-        fitReadableOverview(cy, visibleElements);
+        if (focusExpansionRef.current) cy.fit(visibleElements, 58);
+        else fitOverview(cy, overview, visibleElements);
         if (sectorOverlayRef.current) {
           renderSectorGuide(cy, overview, sectorOverlayRef.current, focusExpansionRef.current);
         }
@@ -590,63 +627,15 @@ export const NetworkGraph: React.FC = () => {
     );
     const previousExpansion = focusExpansionRef.current;
     cy.elements('.focus-supplemental').remove();
-    const baseVisibleElements = applySfiLayout(
+    applySfiLayout(
       cy,
       overview,
       layoutModeRef.current,
       false,
       compactHierarchyRef.current
     );
-
-    const targetViewportFor = (
-      elements: cytoscape.CollectionReturnValue,
-      positions: ReadonlyMap<string, SfiPosition>,
-      boundaryRadius?: number
-    ) => {
-      let minX = Number.POSITIVE_INFINITY;
-      let minY = Number.POSITIVE_INFINITY;
-      let maxX = Number.NEGATIVE_INFINITY;
-      let maxY = Number.NEGATIVE_INFINITY;
-      elements.nodes().forEach((node) => {
-        const position = positions.get(node.id()) ?? node.position();
-        const size = nodeVisualSize(node);
-        minX = Math.min(minX, position.x - size.width / 2);
-        minY = Math.min(minY, position.y - size.height / 2);
-        maxX = Math.max(maxX, position.x + size.width / 2);
-        maxY = Math.max(maxY, position.y + size.height / 2);
-      });
-      const center = overview.sfiInstanceId
-        ? positions.get(overview.sfiInstanceId)
-        : undefined;
-      if (center && boundaryRadius) {
-        minX = Math.min(minX, center.x - boundaryRadius);
-        minY = Math.min(minY, center.y - boundaryRadius);
-        maxX = Math.max(maxX, center.x + boundaryRadius);
-        maxY = Math.max(maxY, center.y + boundaryRadius);
-      }
-      if (!Number.isFinite(minX)) return { zoom: cy.zoom(), pan: { ...cy.pan() } };
-      const padding = 64;
-      const zoom = Math.min(
-        cy.maxZoom(),
-        Math.max(
-          cy.minZoom(),
-          Math.min(
-            Math.max(1, cy.width() - padding * 2) / Math.max(1, maxX - minX),
-            Math.max(1, cy.height() - padding * 2) / Math.max(1, maxY - minY)
-          )
-        )
-      );
-      return {
-        zoom,
-        pan: {
-          x: cy.width() / 2 - ((minX + maxX) / 2) * zoom,
-          y: cy.height() / 2 - ((minY + maxY) / 2) * zoom,
-        },
-      };
-    };
     const animateScene = (
       targetPositions: ReadonlyMap<string, SfiPosition>,
-      visibleElements: cytoscape.CollectionReturnValue,
       expansion: FocusSectorExpansion | null,
       fromProgress: number,
       toProgress: number,
@@ -663,12 +652,6 @@ export const NetworkGraph: React.FC = () => {
         const node = cy.getElementById(nodeId);
         if (node.length > 0) startPositions.set(nodeId, { ...node.position() });
       });
-      const startViewport = { zoom: cy.zoom(), pan: { ...cy.pan() } };
-      const targetViewport = targetViewportFor(
-        visibleElements,
-        targetPositions,
-        expansion?.expandedRadius
-      );
       const startedAt = performance.now();
       let finalized = false;
       const ease = (progress: number) => progress < 0.5
@@ -683,7 +666,6 @@ export const NetworkGraph: React.FC = () => {
           if (node.length > 0) node.position({ x: target.x, y: target.y });
         });
         supplementalElements.removeStyle('opacity');
-        cy.viewport(targetViewport);
         if (expansion) {
           expansion.progress = toProgress;
           focusExpansionRef.current = expansion;
@@ -711,13 +693,6 @@ export const NetworkGraph: React.FC = () => {
             y: start.y + (target.y - start.y) * progress,
           });
         });
-        cy.viewport({
-          zoom: startViewport.zoom + (targetViewport.zoom - startViewport.zoom) * progress,
-          pan: {
-            x: startViewport.pan.x + (targetViewport.pan.x - startViewport.pan.x) * progress,
-            y: startViewport.pan.y + (targetViewport.pan.y - startViewport.pan.y) * progress,
-          },
-        });
         const supplementalOpacity = Math.max(0, Math.min(1, (elapsed - 0.68) / 0.32));
         supplementalElements.style('opacity', supplementalOpacity);
         if (expansion) {
@@ -744,7 +719,6 @@ export const NetworkGraph: React.FC = () => {
     ) {
       animateScene(
         basePositions,
-        baseVisibleElements,
         previousExpansion,
         previousExpansion?.progress ?? 0,
         0,
@@ -755,7 +729,6 @@ export const NetworkGraph: React.FC = () => {
     const focusedNodeId = state.focusedNodeId;
 
     const focusedPositions = new Map(basePositions);
-    let focusedVisibleElements = baseVisibleElements;
     let nextExpansion: FocusSectorExpansion | null = null;
 
     cy.batch(() => {
@@ -846,28 +819,22 @@ export const NetworkGraph: React.FC = () => {
         : undefined;
       const baseAnchorPosition = basePositions.get(anchor.id());
       if (!baseSfiPosition || !baseAnchorPosition) return;
-      const branchAngle = Math.atan2(
-        baseAnchorPosition.y - baseSfiPosition.y,
-        baseAnchorPosition.x - baseSfiPosition.x
-      );
       const activeSlotCount = Math.max(
         1,
         overview.branchSlots.filter((slot) => slot.hubInstanceId).length
       );
       const sectorAngle = (2 * Math.PI / activeSlotCount) * 0.72;
-      const anchorBaseLevel = overview.levelByNode.get(anchor.id()) ?? 1;
       const opensUpstreamLevel = incomingIds.length > 0
         || incomingExternalMemberIds.length > 0;
       const supplementalNodeByDirection = new Map<string, string>();
-      const supplementalSpecs: RadialLayoutNode[] = [];
+      const supplementalSpecs: FocusSupplement[] = [];
       const temporarilyInsideIds = new Set<string>();
 
       const addSupplementalNodes = (
         canonicalIds: string[],
-        direction: 'incoming' | 'outgoing',
-        level: number
+        direction: 'incoming' | 'outgoing'
       ) => {
-        canonicalIds.forEach((canonicalId, index) => {
+        canonicalIds.forEach((canonicalId) => {
           const canonical = canonicalNodes.get(canonicalId);
           if (!canonical?.data) return;
           const visualId = `focus:${focusedNodeId}:${direction}:${canonicalId}`;
@@ -885,25 +852,24 @@ export const NetworkGraph: React.FC = () => {
           supplementalNodeByDirection.set(`${direction}:${canonicalId}`, visualId);
           const rawSize = Number(canonical.data.size ?? 32);
           const size = Number.isFinite(rawSize) ? rawSize : 32;
+          const nodeType = String(canonical.data.nodeType ?? 'external');
+          const isInsideCompany = nodeType === 'internal'
+            || nodeType === 'special-external' || nodeType === 'wapu';
+          const isIncomingSupplier = direction === 'incoming' && nodeType !== 'wapu';
+          const inside = isInsideCompany || isIncomingSupplier;
           supplementalSpecs.push({
             id: visualId,
-            branchId: branchRootId,
-            level,
-            preferredAngle: branchAngle + (index - (canonicalIds.length - 1) / 2) * 0.01,
+            direction,
+            outside: !inside,
+            terminalInside: nodeType === 'special-external',
             ...visualSize(size, size, String(canonical.data.companyName ?? '')),
           });
-          const nodeType = String(canonical.data.nodeType ?? 'external');
-          const isInsideCompany = nodeType === 'internal' || nodeType === 'special-external';
-          const isIncomingSupplier = direction === 'incoming' && nodeType !== 'wapu';
-          if (isInsideCompany || isIncomingSupplier) {
-            temporarilyInsideIds.add(visualId);
-          }
+          if (inside) temporarilyInsideIds.add(visualId);
         });
       };
 
-      const shiftedAnchorLevel = anchorBaseLevel + (opensUpstreamLevel ? 1 : 0);
-      addSupplementalNodes(incomingIds, 'incoming', anchorBaseLevel);
-      addSupplementalNodes(outgoingIds, 'outgoing', shiftedAnchorLevel + 1);
+      addSupplementalNodes(incomingIds, 'incoming');
+      addSupplementalNodes(outgoingIds, 'outgoing');
 
       const externalMemberIdSet = new Set(externalMemberIds);
       const externalGroupIds = {
@@ -925,8 +891,7 @@ export const NetworkGraph: React.FC = () => {
 
       const addExternalGroup = (
         direction: 'incoming' | 'outgoing',
-        memberIds: string[],
-        level: number
+        memberIds: string[]
       ) => {
         if (memberIds.length === 0) return;
         const externalGroupId = externalGroupIds[direction];
@@ -951,16 +916,15 @@ export const NetworkGraph: React.FC = () => {
         });
         supplementalSpecs.push({
           id: externalGroupId,
-          branchId: branchRootId,
-          level,
-          preferredAngle: branchAngle + (direction === 'incoming' ? -0.02 : 0.02),
+          direction,
+          outside: direction === 'outgoing',
           width: 56,
           height: 56,
         });
         if (direction === 'incoming') temporarilyInsideIds.add(externalGroupId);
       };
-      addExternalGroup('incoming', incomingExternalMemberIds, anchorBaseLevel);
-      addExternalGroup('outgoing', outgoingExternalMemberIds, shiftedAnchorLevel + 1);
+      addExternalGroup('incoming', incomingExternalMemberIds);
+      addExternalGroup('outgoing', outgoingExternalMemberIds);
 
       const belongsToFocusedSubtree = (nodeId: string) => {
         let currentId: string | undefined = nodeId;
@@ -980,49 +944,57 @@ export const NetworkGraph: React.FC = () => {
           || !externalMemberIdSet.has(String(node.data('canonicalCompanyId')))
         )
       ));
-      const activeSpecs: RadialLayoutNode[] = [];
-      activeBranchNodes.forEach((node) => {
-        const basePosition = basePositions.get(node.id());
-        if (!basePosition) return;
-        const baseLevel = overview.levelByNode.get(node.id()) ?? 1;
-        activeSpecs.push({
-          id: node.id(),
-          branchId: branchRootId,
-          level: baseLevel + (opensUpstreamLevel && belongsToFocusedSubtree(node.id()) ? 1 : 0),
-          preferredAngle: Math.atan2(
-            basePosition.y - baseSfiPosition.y,
-            basePosition.x - baseSfiPosition.x
-          ),
-          ...nodeVisualSize(node),
-        });
-      });
-      const allFocusSpecs = [...activeSpecs, ...supplementalSpecs];
-      const deepestInternalLevel = Math.max(
-        anchorBaseLevel,
-        ...activeSpecs
-          .filter((spec) => overview.insideBoundaryNodeIds.has(spec.id))
-          .map((spec) => spec.level)
+      const baseBoundaryRadius = internalBoundaryRadius(overview, basePositions);
+      const anchorRadius = radiusAt(baseAnchorPosition, baseSfiPosition);
+      const upstreamClearance = upstreamFocusClearance(
+        visualSize(
+          SFI_OVERVIEW_NODE_DIAMETER,
+          SFI_OVERVIEW_NODE_DIAMETER,
+          String(anchor.data('companyName') ?? '')
+        ),
+        supplementalSpecs.filter((spec) => spec.direction === 'incoming'),
+        sectorAngle
       );
-      activeSpecs.forEach((spec) => {
-        const node = cy.getElementById(spec.id);
-        if (node.data('nodeType') === 'special-external') {
-          spec.level = Math.max(spec.level, deepestInternalLevel);
-        }
-      });
-      const focusedLayout = layoutRadialLevels({
-        center: baseSfiPosition,
-        nodes: allFocusSpecs,
-        branchAngles: new Map([[branchRootId, branchAngle]]),
+      const subtreeShift = opensUpstreamLevel && anchor.id() !== overview.sfiInstanceId
+        ? Math.max(0, upstreamClearance.minimumAnchorRadius - anchorRadius)
+        : 0;
+      if (subtreeShift > 0) {
+        activeBranchNodes.forEach((node) => {
+          if (!belongsToFocusedSubtree(node.id())) return;
+          const position = focusedPositions.get(node.id());
+          if (!position) return;
+          const angle = Math.atan2(
+            position.y - baseSfiPosition.y,
+            position.x - baseSfiPosition.x
+          );
+          const radius = radiusAt(position, baseSfiPosition) + subtreeShift;
+          focusedPositions.set(node.id(), {
+            x: baseSfiPosition.x + radius * Math.cos(angle),
+            y: baseSfiPosition.y + radius * Math.sin(angle),
+          });
+        });
+      }
+      const focusedAnchorPosition = focusedPositions.get(anchor.id()) ?? baseAnchorPosition;
+      const deepestBaseInsideRadius = Math.max(0, ...activeBranchNodes
+        .filter((node) => overview.insideBoundaryNodeIds.has(node.id()))
+        .map((node) => {
+          const position = focusedPositions.get(node.id());
+          return position ? radiusAt(position, baseSfiPosition) : 0;
+        }));
+      placeFocusSupplements(
+        baseSfiPosition,
+        focusedAnchorPosition,
+        supplementalSpecs,
+        baseBoundaryRadius,
+        deepestBaseInsideRadius,
         sectorAngle,
-      });
-      focusedLayout.positions.forEach((position, nodeId) => {
-        focusedPositions.set(nodeId, position);
-      });
+        upstreamClearance.gap
+      ).forEach((position, nodeId) => focusedPositions.set(nodeId, position));
 
       const focusedInsideIds = new Set([
-        ...activeSpecs
-          .filter((spec) => overview.insideBoundaryNodeIds.has(spec.id))
-          .map((spec) => spec.id),
+        ...activeBranchNodes
+          .filter((node) => overview.insideBoundaryNodeIds.has(node.id()))
+          .map((node) => node.id()),
         ...temporarilyInsideIds,
       ]);
       const deepestFocusedInsideRadius = Math.max(
@@ -1032,35 +1004,31 @@ export const NetworkGraph: React.FC = () => {
           return position ? radiusAt(position, baseSfiPosition) : 0;
         })
       );
-      const baseBoundaryRadius = internalBoundaryRadius(overview, basePositions);
       const focusedBoundaryRadius = Math.max(
         baseBoundaryRadius,
         deepestFocusedInsideRadius + SFI_INTERNAL_BOUNDARY_PADDING
       );
-      const outsideSpecs = allFocusSpecs.filter((spec) => !focusedInsideIds.has(spec.id));
-      const currentOutsideRadii = outsideSpecs.map((spec) => {
-        const position = focusedPositions.get(spec.id)!;
-        return radiusAt(position, baseSfiPosition);
-      });
-      const outsideFloor = focusedBoundaryRadius + 64;
-      const outsideShift = currentOutsideRadii.length > 0
-        ? Math.max(0, outsideFloor - Math.min(...currentOutsideRadii))
-        : 0;
-      if (outsideShift > 0) {
-        outsideSpecs.forEach((spec) => {
-          const position = focusedPositions.get(spec.id);
-          if (!position) return;
-          const angle = Math.atan2(
-            position.y - baseSfiPosition.y,
-            position.x - baseSfiPosition.x
-          );
-          const radius = radiusAt(position, baseSfiPosition) + outsideShift;
-          focusedPositions.set(spec.id, {
-            x: baseSfiPosition.x + radius * Math.cos(angle),
-            y: baseSfiPosition.y + radius * Math.sin(angle),
-          });
+      const outsideIds = [
+        ...activeBranchNodes
+          .filter((node) => !focusedInsideIds.has(node.id()))
+          .map((node) => node.id()),
+        ...supplementalSpecs.filter((spec) => spec.outside).map((spec) => spec.id),
+      ];
+      const outsideFloor = focusedBoundaryRadius + 48;
+      outsideIds.forEach((nodeId) => {
+        const position = focusedPositions.get(nodeId);
+        if (!position) return;
+        const radius = radiusAt(position, baseSfiPosition);
+        if (radius >= outsideFloor) return;
+        const angle = Math.atan2(
+          position.y - baseSfiPosition.y,
+          position.x - baseSfiPosition.x
+        );
+        focusedPositions.set(nodeId, {
+          x: baseSfiPosition.x + outsideFloor * Math.cos(angle),
+          y: baseSfiPosition.y + outsideFloor * Math.sin(angle),
         });
-      }
+      });
       nextExpansion = {
         branchRootId,
         baseRadius: baseBoundaryRadius,
@@ -1164,7 +1132,6 @@ export const NetworkGraph: React.FC = () => {
       const connectedEdges = focusedTarget.connectedEdges(':visible').merge(focusedEdges);
       const relatedNodes = connectedEdges.connectedNodes().add(focusedTarget);
       const focusedElements = relatedNodes.add(connectedEdges);
-      focusedVisibleElements = cy.elements(':visible');
 
       cy.elements(':visible').addClass('dimmed');
       focusedElements.removeClass('dimmed');
@@ -1175,7 +1142,6 @@ export const NetworkGraph: React.FC = () => {
     if (nextExpansion) focusExpansionRef.current = nextExpansion;
     animateScene(
       focusedPositions,
-      focusedVisibleElements,
       nextExpansion,
       expansionStartProgress(previousExpansion, nextExpansion),
       1
@@ -1212,7 +1178,8 @@ export const NetworkGraph: React.FC = () => {
     );
     if (visible.length > 0) {
       cy.stop();
-      cy.fit(visible, 58);
+      if (focusExpansionRef.current) cy.fit(visible, 58);
+      else fitOverview(cy, overview, visible);
       const overlay = sectorOverlayRef.current;
       if (overlay) renderSectorGuide(cy, overview, overlay, focusExpansionRef.current);
     }

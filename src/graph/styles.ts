@@ -200,11 +200,12 @@ export const graphStyles: any = [
   {
     selector: 'edge.sfi-edge',
     style: {
-      'width': 1.5,
+      'width': 2,
       'curve-style': 'straight',
       'source-distance-from-node': 4,
       'target-distance-from-node': 7,
-      'opacity': 0.72
+      'opacity': 0.88,
+      'arrow-scale': 1.2
     }
   },
   {
@@ -224,7 +225,7 @@ export const graphStyles: any = [
   {
     selector: 'edge.sfi-edge.highlighted',
     style: {
-      'width': 2,
+      'width': 3,
       'opacity': 1,
       'z-index': 10
     }

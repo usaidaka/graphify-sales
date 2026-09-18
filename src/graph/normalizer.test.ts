@@ -87,4 +87,21 @@ describe('normalize company identities', () => {
     expect(supplier?.isImport).toBe(true)
     expect(buyer?.isImport).toBeUndefined()
   })
+
+  it('shows WAPU only in internal only and ordinary externals only with external', () => {
+    const parsed = workbook([
+      transaction('PT SFI', 'PT MSP', 2024),
+      transaction('PT MSP', 'WAPU', 2024),
+      transaction('PT MSP', 'OUTSIDE CUSTOMER', 2024),
+    ])
+    const full = normalize(parsed, 'active', 'with-external', 2024, 2024)
+    const internal = normalize(parsed, 'active', 'internal-only', 2024, 2024)
+
+    expect(full.nodes.some(({ id }) => id === 'wapu')).toBe(false)
+    expect(full.edges.some(({ source, target }) => source === 'wapu' || target === 'wapu')).toBe(false)
+    expect(full.nodes.some(({ nodeType }) => nodeType === 'external')).toBe(true)
+    expect(internal.nodes.find(({ id }) => id === 'wapu')?.nodeType).toBe('wapu')
+    expect(internal.nodes.some(({ nodeType }) => nodeType === 'external')).toBe(false)
+    expect(internal.edges.some(({ target }) => target === 'wapu')).toBe(true)
+  })
 })

@@ -350,10 +350,12 @@ export function normalize(
   // Filter by Scope
   if (scopeFilter === 'internal-only') {
     // SFI remains the mandatory anchor even under an internal-only scope.
-    nodes = nodes.filter(n => n.nodeType === 'internal' || isSfiNode(n));
-    const internalKeys = new Set(nodes.map(n => n.id));
-    edges = edges.filter(e => internalKeys.has(e.source) && internalKeys.has(e.target));
+    nodes = nodes.filter(n => n.nodeType === 'internal' || n.nodeType === 'wapu' || isSfiNode(n));
+  } else {
+    nodes = nodes.filter(n => n.nodeType !== 'wapu');
   }
+  const scopedNodeIds = new Set(nodes.map(n => n.id));
+  edges = edges.filter(e => scopedNodeIds.has(e.source) && scopedNodeIds.has(e.target));
 
   // Never expose companies without a transaction after all active filters.
   const connectedNodeIds = new Set<string>();

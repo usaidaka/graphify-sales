@@ -39,8 +39,8 @@
 .sfi-sector-outer,
 .sfi-sector-inner {
   fill: none;
-  stroke: rgba(148, 163, 184, 0.72);
-  stroke-width: 2;
+  stroke: rgba(174, 190, 211, 0.88);
+  stroke-width: 2.5;
 }
 
 .sfi-sector-inner {
@@ -50,8 +50,8 @@
 }
 
 .sfi-sector-divider {
-  stroke: rgba(148, 163, 184, 0.78);
-  stroke-width: 2;
+  stroke: rgba(174, 190, 211, 0.8);
+  stroke-width: 2.2;
   stroke-linecap: round;
 }
 
