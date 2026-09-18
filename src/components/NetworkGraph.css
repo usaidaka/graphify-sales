@@ -55,15 +55,12 @@
   stroke-linecap: round;
 }
 
-.sfi-sector-label {
-  fill: rgba(226, 232, 240, 0.9);
-  font: 700 11px Inter, sans-serif;
-  letter-spacing: 0.08em;
-  text-anchor: middle;
-  dominant-baseline: middle;
-  paint-order: stroke;
-  stroke: rgba(15, 17, 21, 0.92);
-  stroke-width: 3px;
+.sfi-sector-hover-outline {
+  fill: none;
+  stroke: #b9e6fa;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 3px #fb923c) drop-shadow(0 0 8px rgba(251, 146, 60, 0.95));
 }
 
 .loading-overlay {

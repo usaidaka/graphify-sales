@@ -25,6 +25,10 @@ import {
 } from '../graph/radialLayout';
 import './NetworkGraph.css';
 
+const SFI_OVERVIEW_NODE_DIAMETER = 38;
+const SFI_CENTER_NODE_DIAMETER = 56;
+const SFI_READABLE_ZOOM = 0.85;
+
 function collectLayoutOptions(
   cy: cytoscape.Core,
   compactHierarchy = false
@@ -33,7 +37,7 @@ function collectLayoutOptions(
   const terminalInsideNodeIds = new Set<string>();
   cy.nodes().forEach((node) => {
     const isCenter = node.hasClass('sfi-center');
-    const diameter = isCenter ? 44 : 28;
+    const diameter = isCenter ? SFI_CENTER_NODE_DIAMETER : SFI_OVERVIEW_NODE_DIAMETER;
     nodeSizes.set(
       node.id(),
       visualSize(diameter, diameter, String(node.data('companyName') ?? ''))
@@ -129,6 +133,22 @@ function applySfiLayout(
       ? overview.visibleNodeIds.has(element.id())
       : overview.visibleEdgeIds.has(element.id())
   );
+}
+
+function fitReadableOverview(
+  cy: cytoscape.Core,
+  elements: cytoscape.CollectionReturnValue
+) {
+  if (elements.length === 0) return;
+  cy.fit(elements, 58);
+  if (cy.zoom() < SFI_READABLE_ZOOM) {
+    cy.zoom({
+      level: SFI_READABLE_ZOOM,
+      renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 },
+    });
+    const centerNode = cy.nodes('.sfi-center').first();
+    if (centerNode.length > 0) cy.center(centerNode);
+  }
 }
 
 interface OverviewSummary {
@@ -229,6 +249,12 @@ function renderSectorGuide(
   const expandedSlot = expansion
     ? activeSlots.find((slot) => slot.hubInstanceId === expansion.branchRootId)
     : undefined;
+  overlay.dataset.centerX = String(center.x);
+  overlay.dataset.centerY = String(center.y);
+  overlay.dataset.innerRadius = String(innerRadius);
+  overlay.dataset.baseRadius = String(baseOuterRadius);
+  overlay.dataset.activeRadius = String(activeOuterRadius);
+  overlay.dataset.expandedSlotId = expandedSlot?.hubInstanceId ?? '';
   if (!expandedSlot || activeOuterRadius <= baseOuterRadius + 0.5) {
     const outerCircle = document.createElementNS(SVG_NAMESPACE, 'circle');
     outerCircle.setAttribute('class', 'sfi-sector-outer');
@@ -264,7 +290,7 @@ function renderSectorGuide(
   innerCircle.setAttribute('r', String(innerRadius));
   overlay.append(innerCircle);
 
-  activeSlots.forEach((slot, index) => {
+  activeSlots.forEach((_slot, index) => {
     const boundaryAngle = -Math.PI + sectorSize * index;
     const divider = document.createElementNS(SVG_NAMESPACE, 'line');
     divider.setAttribute('class', 'sfi-sector-divider');
@@ -273,15 +299,32 @@ function renderSectorGuide(
     divider.setAttribute('x2', String(center.x + baseOuterRadius * Math.cos(boundaryAngle)));
     divider.setAttribute('y2', String(center.y + baseOuterRadius * Math.sin(boundaryAngle)));
     overlay.append(divider);
-
-    const labelRadius = Math.max(innerRadius + 24, baseOuterRadius - 18);
-    const label = document.createElementNS(SVG_NAMESPACE, 'text');
-    label.setAttribute('class', 'sfi-sector-label');
-    label.setAttribute('x', String(center.x + labelRadius * Math.cos(slot.angle)));
-    label.setAttribute('y', String(center.y + labelRadius * Math.sin(slot.angle)));
-    // label.textContent = `ALUR ${slot.principal}`;
-    overlay.append(label);
   });
+
+  const hoveredSlot = activeSlots.find(
+    (slot) => slot.hubInstanceId === overlay.dataset.hoveredSlotId
+  );
+  if (hoveredSlot) {
+    const startAngle = hoveredSlot.angle - sectorSize / 2;
+    const endAngle = hoveredSlot.angle + sectorSize / 2;
+    const outerRadius = hoveredSlot.hubInstanceId === expandedSlot?.hubInstanceId
+      ? activeOuterRadius
+      : baseOuterRadius;
+    const arc = document.createElementNS(SVG_NAMESPACE, 'path');
+    arc.setAttribute('class', 'sfi-sector-hover-outline');
+    arc.setAttribute('d', arcPath(center, outerRadius, startAngle, endAngle, sectorSize > Math.PI));
+    overlay.append(arc);
+
+    [startAngle, endAngle].forEach((angle) => {
+      const divider = document.createElementNS(SVG_NAMESPACE, 'line');
+      divider.setAttribute('class', 'sfi-sector-hover-outline');
+      divider.setAttribute('x1', String(center.x + innerRadius * Math.cos(angle)));
+      divider.setAttribute('y1', String(center.y + innerRadius * Math.sin(angle)));
+      divider.setAttribute('x2', String(center.x + outerRadius * Math.cos(angle)));
+      divider.setAttribute('y2', String(center.y + outerRadius * Math.sin(angle)));
+      overlay.append(divider);
+    });
+  }
 }
 
 export const NetworkGraph: React.FC = () => {
@@ -400,7 +443,7 @@ export const NetworkGraph: React.FC = () => {
           true,
           compactHierarchyRef.current
         );
-        if (visibleElements.length > 0) cy.fit(visibleElements, 58);
+        fitReadableOverview(cy, visibleElements);
         if (sectorOverlayRef.current) {
           renderSectorGuide(cy, overview, sectorOverlayRef.current);
         }
@@ -408,6 +451,58 @@ export const NetworkGraph: React.FC = () => {
       setLayoutRunning(false);
     });
   }, [graph, loading, state.transactionView, state.sfiLayoutMode, dispatch]);
+
+  useEffect(() => {
+    const canvas = containerRef.current;
+    if (!canvas) return;
+
+    const setHoveredSlot = (slotId: string) => {
+      const cy = cyRef.current;
+      const overview = overviewRef.current;
+      const overlay = sectorOverlayRef.current;
+      if (!cy || !overview || !overlay || overlay.dataset.hoveredSlotId === slotId) return;
+      overlay.dataset.hoveredSlotId = slotId;
+      renderSectorGuide(cy, overview, overlay, focusExpansionRef.current);
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const overview = overviewRef.current;
+      const overlay = sectorOverlayRef.current;
+      if (!overview || !overlay) return;
+      const rect = canvas.getBoundingClientRect();
+      const dx = event.clientX - rect.left - Number(overlay.dataset.centerX);
+      const dy = event.clientY - rect.top - Number(overlay.dataset.centerY);
+      const distance = Math.hypot(dx, dy);
+      const slots = overview.branchSlots.filter((slot) => slot.hubInstanceId);
+      if (slots.length === 0) {
+        setHoveredSlot('');
+        return;
+      }
+      const sectorSize = (2 * Math.PI) / slots.length;
+      const angle = Math.atan2(dy, dx);
+      const hoveredSlot = slots.find((slot) => {
+        const angleDifference = Math.atan2(
+          Math.sin(angle - slot.angle),
+          Math.cos(angle - slot.angle)
+        );
+        const outerRadius = slot.hubInstanceId === overlay.dataset.expandedSlotId
+          ? Number(overlay.dataset.activeRadius)
+          : Number(overlay.dataset.baseRadius);
+        return Math.abs(angleDifference) <= sectorSize / 2
+          && distance >= Number(overlay.dataset.innerRadius)
+          && distance <= outerRadius;
+      });
+      setHoveredSlot(hoveredSlot?.hubInstanceId ?? '');
+    };
+
+    const handlePointerLeave = () => setHoveredSlot('');
+    canvas.addEventListener('pointermove', handlePointerMove);
+    canvas.addEventListener('pointerleave', handlePointerLeave);
+    return () => {
+      canvas.removeEventListener('pointermove', handlePointerMove);
+      canvas.removeEventListener('pointerleave', handlePointerLeave);
+    };
+  }, []);
 
   useEffect(() => () => {
     cancelAnimationFrame(focusAnimationFrameRef.current);
@@ -436,7 +531,7 @@ export const NetworkGraph: React.FC = () => {
               true,
               compactHierarchyRef.current
             );
-        if (visibleElements.length > 0) cy.fit(visibleElements, 58);
+        fitReadableOverview(cy, visibleElements);
         if (sectorOverlayRef.current) {
           renderSectorGuide(cy, overview, sectorOverlayRef.current, focusExpansionRef.current);
         }
@@ -466,7 +561,7 @@ export const NetworkGraph: React.FC = () => {
               true,
               compactHierarchyRef.current
             );
-        if (visibleElements.length > 0) cy.fit(visibleElements, 58);
+        fitReadableOverview(cy, visibleElements);
         if (sectorOverlayRef.current) {
           renderSectorGuide(cy, overview, sectorOverlayRef.current, focusExpansionRef.current);
         }

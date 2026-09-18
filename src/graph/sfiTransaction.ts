@@ -1004,15 +1004,15 @@ export function calculateSfiPositions(
     });
 
     if (options.compactHierarchy) {
-      const countByLevel = new Map<number, number>();
+      const footprintByLevel = new Map<number, number>();
       ordered.forEach((nodeId) => {
         const level = visualLevelByNode.get(nodeId) ?? 1;
-        countByLevel.set(level, (countByLevel.get(level) ?? 0) + 1);
+        const width = options.nodeSizes?.get(nodeId)?.width ?? 52;
+        footprintByLevel.set(level, (footprintByLevel.get(level) ?? 0) + width + 28);
       });
       ordered.forEach((nodeId) => {
         const level = visualLevelByNode.get(nodeId) ?? 1;
-        const levelCount = countByLevel.get(level) ?? 1;
-        const collisionRadius = (levelCount * 62) / (2 * Math.PI);
+        const collisionRadius = (footprintByLevel.get(level) ?? 80) / (2 * Math.PI);
         const radius = Math.max(level * HIERARCHY_LEVEL_GAP, collisionRadius);
         const angle = angles.get(nodeId) ?? 0;
         positions.set(nodeId, {

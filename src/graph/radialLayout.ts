@@ -33,8 +33,8 @@ export const RADIAL_LAYOUT_CONFIG = {
   siblingGap: 34,
   levelGap: 82,
   minimumFirstRadius: 150,
-  maximumLabelWidth: 132,
-  labelHorizontalPadding: 16,
+  maximumLabelWidth: 160,
+  labelHorizontalPadding: 20,
   focusLevelGap: 118,
   edgeEndpointGap: 5,
   badgeOffset: 14,
@@ -49,7 +49,7 @@ export function visualSize(
 ): VisualSize {
   const labelWidth = Math.min(
     RADIAL_LAYOUT_CONFIG.maximumLabelWidth,
-    label.trim().length * 7 + RADIAL_LAYOUT_CONFIG.labelHorizontalPadding
+    label.trim().length * 8 + RADIAL_LAYOUT_CONFIG.labelHorizontalPadding
   );
   return {
     width: Math.max(bodyWidth, labelWidth),

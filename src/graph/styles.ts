@@ -3,16 +3,16 @@ export const graphStyles: any = [
     selector: 'node',
     style: {
       'label': 'data(companyName)',
-      'font-size': '11px',
+      'font-size': '16px',
       'font-family': 'Inter, sans-serif',
       'text-valign': 'center',
       'text-halign': 'center',
       'color': '#ffffff',
       'text-outline-color': '#0f1115',
-      'text-outline-width': 2.5,
-      'text-max-width': '120px',
-      'text-wrap': 'ellipsis',
-      'min-zoomed-font-size': 8,
+      'text-outline-width': 3,
+      'text-max-width': '160px',
+      'text-wrap': 'wrap',
+      'min-zoomed-font-size': 0,
       'width': 'data(size)',
       'height': 'data(size)',
       'border-width': 2,
@@ -162,21 +162,21 @@ export const graphStyles: any = [
   {
     selector: 'node.sfi-overview-node',
     style: {
-      'width': 28,
-      'height': 28,
+      'width': 38,
+      'height': 38,
       'border-width': 2
     }
   },
   {
     selector: 'node.sfi-center',
     style: {
-      'width': 44,
-      'height': 44,
+      'width': 56,
+      'height': 56,
       'shape': 'diamond',
       'background-color': '#2563eb',
       'border-color': '#93c5fd',
       'border-width': 4,
-      'font-size': '12px',
+      'font-size': '17px',
       'font-weight': 'bold',
       'z-index': 20
     }
