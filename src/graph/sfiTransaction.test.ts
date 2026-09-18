@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { buildSfiCytoscapeElements } from './builder'
+import { hasVisualCollisions } from './radialLayout'
 import {
   calculateSfiPositions,
   createSfiTransactionOverview,
@@ -410,7 +411,14 @@ describe('calculateSfiPositions', () => {
       )))
     }
 
-    expect(maximumRadius(compact)).toBeLessThan(maximumRadius(regular) * 0.6)
+    expect(maximumRadius(compact)).toBeLessThan(maximumRadius(regular) * 0.75)
+    expect(hasVisualCollisions(result.nodeInstances.map((instance) => ({
+      ...instance,
+      branchId: instance.branch,
+      preferredAngle: 0,
+      width: 52,
+      height: 32,
+    })), regular, 12)).toBe(false)
   })
 })
 

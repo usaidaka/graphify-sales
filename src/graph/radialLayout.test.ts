@@ -71,4 +71,36 @@ describe('layoutRadialLevels', () => {
     expect(result.radiusByLevel.get(3)!).toBeGreaterThan(result.radiusByLevel.get(1)!);
     expect(hasVisualCollisions(nodes, result.positions)).toBe(false);
   });
+
+  it('tightens an overview while preserving level order and label clearance', () => {
+    const branches = ['a', 'b', 'c'];
+    const nodes: RadialLayoutNode[] = branches.flatMap((branchId, branchIndex) => [
+      { ...node(`${branchId}-hub`, 1, 70, 38), branchId },
+      { ...node(`${branchId}-middle`, 2, 90, 38), branchId },
+      ...Array.from({ length: 5 }, (_, index) => ({
+        ...node(`${branchId}-leaf-${index}`, 3, 90, 38),
+        branchId,
+        preferredAngle: branchIndex * 2 * Math.PI / 3,
+      })),
+    ]);
+    const branchAngles = new Map(branches.map((branch, index) => [
+      branch,
+      index * 2 * Math.PI / 3,
+    ]));
+    const regular = layoutRadialLevels({ center, nodes, branchAngles });
+    const tighter = layoutRadialLevels({
+      center,
+      nodes,
+      branchAngles,
+      minimumFirstRadius: 120,
+      collisionPadding: 12,
+      siblingGap: 16,
+      levelGap: 52,
+    });
+
+    expect(tighter.radiusByLevel.get(3)!).toBeLessThan(regular.radiusByLevel.get(3)!);
+    expect(tighter.radiusByLevel.get(1)!).toBeLessThan(tighter.radiusByLevel.get(2)!);
+    expect(tighter.radiusByLevel.get(2)!).toBeLessThan(tighter.radiusByLevel.get(3)!);
+    expect(hasVisualCollisions(nodes, tighter.positions, 12)).toBe(false);
+  });
 });

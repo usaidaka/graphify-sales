@@ -27,7 +27,7 @@ import './NetworkGraph.css';
 
 const SFI_OVERVIEW_NODE_DIAMETER = 38;
 const SFI_CENTER_NODE_DIAMETER = 56;
-const SFI_READABLE_ZOOM = 0.85;
+const SFI_READABLE_ZOOM = 1;
 
 function collectLayoutOptions(
   cy: cytoscape.Core,

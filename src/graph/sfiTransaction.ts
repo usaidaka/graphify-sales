@@ -20,12 +20,13 @@ const PRINCIPALS: ReadonlyArray<{ key: PrincipalKey; angle: number }> = [
 const VISUAL_BRANCH_ORDER: PrincipalKey[] = ['LDN', 'LJ', 'MSP', 'GBA'];
 
 const LEGAL_PREFIXES = new Set(['pt', 'cv', 'pd', 'ud']);
-const HIERARCHY_LEVEL_GAP = 150;
+const HIERARCHY_LEVEL_GAP = 120;
+const HIERARCHY_LABEL_PADDING = 12;
 const VALUE_FIRST_STEP = 108;
 const VALUE_RANK_GAP = 46;
-export const SFI_INTERNAL_BOUNDARY_PADDING = 36;
+export const SFI_INTERNAL_BOUNDARY_PADDING = 30;
 export const SFI_INTERNAL_BOUNDARY_MIN_RADIUS = HIERARCHY_LEVEL_GAP;
-const SFI_EXTERNAL_BOUNDARY_GAP = 64;
+const SFI_EXTERNAL_BOUNDARY_GAP = 48;
 
 export interface BranchSlot {
   principal: VisualBranchKey;
@@ -1046,12 +1047,15 @@ export function calculateSfiPositions(
       nodes: layoutNodes,
       branchAngles,
       minimumFirstRadius: HIERARCHY_LEVEL_GAP,
+      collisionPadding: HIERARCHY_LABEL_PADDING,
+      siblingGap: 16,
+      levelGap: 52,
     });
     radialLayout.positions.forEach((position, nodeId) => positions.set(nodeId, position));
     moveNonInternalNodesOutsideBoundary(overview, positions, center);
     const beforeCrossingOptimization = new Map(positions);
     minimizeHierarchyCrossings(overview, positions);
-    if (hasVisualCollisions(layoutNodes, positions)) {
+    if (hasVisualCollisions(layoutNodes, positions, HIERARCHY_LABEL_PADDING)) {
       positions.clear();
       beforeCrossingOptimization.forEach((position, nodeId) => positions.set(nodeId, position));
     }

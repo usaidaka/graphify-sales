@@ -21,6 +21,9 @@ export interface RadialLayoutInput {
   branchAngles: ReadonlyMap<string, number>;
   sectorAngle?: number;
   minimumFirstRadius?: number;
+  collisionPadding?: number;
+  siblingGap?: number;
+  levelGap?: number;
 }
 
 export interface RadialLayoutResult {
@@ -62,7 +65,7 @@ function overlaps(
   firstPosition: Point,
   second: RadialLayoutNode,
   secondPosition: Point,
-  padding = RADIAL_LAYOUT_CONFIG.collisionPadding
+  padding: number = RADIAL_LAYOUT_CONFIG.collisionPadding
 ): boolean {
   return Math.abs(firstPosition.x - secondPosition.x) + EPSILON
       < (first.width + second.width) / 2 + padding
@@ -73,7 +76,7 @@ function overlaps(
 export function hasVisualCollisions(
   nodes: RadialLayoutNode[],
   positions: ReadonlyMap<string, Point>,
-  padding = RADIAL_LAYOUT_CONFIG.collisionPadding
+  padding: number = RADIAL_LAYOUT_CONFIG.collisionPadding
 ): boolean {
   for (let firstIndex = 0; firstIndex < nodes.length; firstIndex += 1) {
     const firstPosition = positions.get(nodes[firstIndex].id);
@@ -119,10 +122,10 @@ function buildPositions(
     const radius = radiusByLevel.get(nodes[0].level) ?? input.minimumFirstRadius
       ?? RADIAL_LAYOUT_CONFIG.minimumFirstRadius;
     const footprints = nodes.map((node) => (
-      halfDepth(node) * 2 + RADIAL_LAYOUT_CONFIG.collisionPadding
+      halfDepth(node) * 2 + (input.collisionPadding ?? RADIAL_LAYOUT_CONFIG.collisionPadding)
     ));
     const totalArc = footprints.reduce((sum, value) => sum + value, 0)
-      + RADIAL_LAYOUT_CONFIG.siblingGap * Math.max(0, nodes.length - 1);
+      + (input.siblingGap ?? RADIAL_LAYOUT_CONFIG.siblingGap) * Math.max(0, nodes.length - 1);
     const branchAngle = input.branchAngles.get(nodes[0].branchId)
       ?? nodes.reduce((sum, node) => sum + node.preferredAngle, 0) / nodes.length;
     const maximumArc = radius * sectorAngle;
@@ -137,7 +140,7 @@ function buildPositions(
         x: input.center.x + radius * Math.cos(angle),
         y: input.center.y + radius * Math.sin(angle),
       });
-      cursor += footprint / 2 + RADIAL_LAYOUT_CONFIG.siblingGap * scale;
+      cursor += footprint / 2 + (input.siblingGap ?? RADIAL_LAYOUT_CONFIG.siblingGap) * scale;
     });
   });
   return positions;
@@ -145,7 +148,8 @@ function buildPositions(
 
 function firstCollision(
   nodes: RadialLayoutNode[],
-  positions: ReadonlyMap<string, Point>
+  positions: ReadonlyMap<string, Point>,
+  padding: number
 ): [RadialLayoutNode, RadialLayoutNode] | null {
   for (let firstIndex = 0; firstIndex < nodes.length; firstIndex += 1) {
     const firstPosition = positions.get(nodes[firstIndex].id);
@@ -154,7 +158,7 @@ function firstCollision(
       const secondPosition = positions.get(nodes[secondIndex].id);
       if (
         secondPosition
-        && overlaps(nodes[firstIndex], firstPosition, nodes[secondIndex], secondPosition)
+        && overlaps(nodes[firstIndex], firstPosition, nodes[secondIndex], secondPosition, padding)
       ) return [nodes[firstIndex], nodes[secondIndex]];
     }
   }
@@ -166,6 +170,9 @@ function firstCollision(
  * only widen a level radius and redistribute siblings inside their branch arc.
  */
 export function layoutRadialLevels(input: RadialLayoutInput): RadialLayoutResult {
+  const collisionPadding = input.collisionPadding ?? RADIAL_LAYOUT_CONFIG.collisionPadding;
+  const siblingGap = input.siblingGap ?? RADIAL_LAYOUT_CONFIG.siblingGap;
+  const levelGap = input.levelGap ?? RADIAL_LAYOUT_CONFIG.levelGap;
   const levels = [...new Set(input.nodes.map(({ level }) => level))].sort((a, b) => a - b);
   const branchCount = Math.max(1, input.branchAngles.size);
   const sectorAngle = Math.max(
@@ -186,14 +193,14 @@ export function layoutRadialLevels(input: RadialLayoutInput): RadialLayoutResult
       const branchNodes = levelNodes.filter((node) => node.branchId === branchId);
       const requiredArc = branchNodes.reduce(
         (sum, node) => sum + halfDepth(node) * 2
-          + RADIAL_LAYOUT_CONFIG.collisionPadding,
-        RADIAL_LAYOUT_CONFIG.siblingGap * Math.max(0, branchNodes.length - 1)
+          + collisionPadding,
+        siblingGap * Math.max(0, branchNodes.length - 1)
       );
       return requiredArc / sectorAngle;
     }));
     const skippedLevels = Math.max(1, level - previousLevel);
     const radialSeparation = previousRadius + previousDepth + levelDepth
-      + RADIAL_LAYOUT_CONFIG.levelGap * skippedLevels;
+      + levelGap * skippedLevels;
     const legacySpacing = level * (input.minimumFirstRadius
       ?? RADIAL_LAYOUT_CONFIG.minimumFirstRadius);
     const radius = Math.max(radialSeparation, legacySpacing, radiusNeededByBranch);
@@ -205,7 +212,7 @@ export function layoutRadialLevels(input: RadialLayoutInput): RadialLayoutResult
 
   let positions = buildPositions(input, radiusByLevel, sectorAngle);
   for (let iteration = 0; iteration < 80; iteration += 1) {
-    const collision = firstCollision(input.nodes, positions);
+    const collision = firstCollision(input.nodes, positions, collisionPadding);
     if (!collision) break;
     const affectedLevel = Math.max(collision[0].level, collision[1].level);
     const affectedIndex = levels.indexOf(affectedLevel);
