@@ -104,4 +104,39 @@ describe('normalize company identities', () => {
     expect(internal.nodes.some(({ nodeType }) => nodeType === 'external')).toBe(false)
     expect(internal.edges.some(({ target }) => target === 'wapu')).toBe(true)
   })
+
+  it('keeps Normal-Pengganti in Normal and reserves Diganti & Batal for inactive invoices', () => {
+    const normalReplacement = transaction('PT SFI', 'PT MSP', 2024)
+    normalReplacement.status = 'Normal-Pengganti'
+    const replaced = transaction('PT SFI', 'PT MSP', 2024)
+    replaced.status = 'Diganti'
+    const cancelled = transaction('PT SFI', 'PT MSP', 2024)
+    cancelled.status = 'Batal'
+    const parsed = workbook([normalReplacement, replaced, cancelled])
+
+    const normalGraph = normalize(parsed, 'active', 'with-external', 2024, 2024)
+    const inactiveGraph = normalize(parsed, 'cancelled-replaced', 'with-external', 2024, 2024)
+
+    expect(normalGraph.edges[0]?.invoiceCount).toBe(1)
+    expect(inactiveGraph.edges[0]?.invoiceCount).toBe(2)
+  })
+
+  it('collects director and KPP annotations from filtered transactions', () => {
+    const row = transaction('PT SFI', 'PT MSP', 2024)
+    row.sellerDirector = 'Edi Sulistio'
+    row.sellerKpp = 'KPP 412'
+    row.buyerDirector = 'Susamto'
+    row.buyerKpp = 'KPP 024'
+
+    const graph = normalize(workbook([row]), 'active', 'with-external', 2024, 2024)
+
+    expect(graph.nodes.find(({ id }) => id === 'pt sfi')).toMatchObject({
+      directors: ['Edi Sulistio'],
+      kppLabels: ['KPP 412'],
+    })
+    expect(graph.nodes.find(({ id }) => id === 'pt msp')).toMatchObject({
+      directors: ['Susamto'],
+      kppLabels: ['KPP 024'],
+    })
+  })
 })

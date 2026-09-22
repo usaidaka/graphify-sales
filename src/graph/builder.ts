@@ -1,17 +1,49 @@
 import cytoscape from 'cytoscape';
-import { NormalizedGraph, NodeData, EdgeData } from './types';
+import { NormalizedGraph, NodeData, EdgeData, NodeAnnotationMode } from './types';
 import type { SfiTransactionOverview } from './sfiTransaction';
+import { formatCompactOmzet } from '../utils/formatters';
 
 const CLEAR_EDGE_WIDTH = 1.5;
 
-export function buildCytoscapeElements(graph: NormalizedGraph): cytoscape.ElementDefinition[] {
+type NodeTotals = { invoiceCount: number; totalDPP: number };
+
+function annotationForNode(
+  node: NodeData,
+  totals: NodeTotals,
+  mode: NodeAnnotationMode
+): string {
+  if (mode === 'dpp') return formatCompactOmzet(totals.totalDPP);
+  if (mode === 'invoice-count') return `${totals.invoiceCount} F`;
+  if (mode === 'kpp') {
+    const kppLabels = node.kppLabels ?? [];
+    if (kppLabels.length === 1) return kppLabels[0];
+    if (kppLabels.length > 1) return `${kppLabels.length} KPP`;
+    return '';
+  }
+
+  const directors = node.directors ?? [];
+  if (directors.length <= 2) return directors.join(' / ');
+  return `${directors.slice(0, 2).join(' / ')} +${directors.length - 2}`;
+}
+
+export function buildCytoscapeElements(
+  graph: NormalizedGraph,
+  annotationMode: NodeAnnotationMode = 'director'
+): cytoscape.ElementDefinition[] {
   const elements: cytoscape.ElementDefinition[] = [];
 
   // Count degree for each node
   const nodeDegreeMap = new Map<string, number>();
+  const nodeTotals = new Map<string, NodeTotals>();
   graph.edges.forEach(edge => {
     nodeDegreeMap.set(edge.source, (nodeDegreeMap.get(edge.source) || 0) + 1);
     nodeDegreeMap.set(edge.target, (nodeDegreeMap.get(edge.target) || 0) + 1);
+    [edge.source, edge.target].forEach((nodeId) => {
+      const totals = nodeTotals.get(nodeId) ?? { invoiceCount: 0, totalDPP: 0 };
+      totals.invoiceCount += edge.invoiceCount;
+      totals.totalDPP += edge.totalDPP;
+      nodeTotals.set(nodeId, totals);
+    });
   });
 
   // For each node, collect all connected edge DPPs to compute relative ranking
@@ -55,12 +87,19 @@ export function buildCytoscapeElements(graph: NormalizedGraph): cytoscape.Elemen
     const degree = nodeDegreeMap.get(node.id) || 1;
     const baseSize = node.nodeType === 'internal' ? 32 : node.nodeType === 'special-external' ? 36 : 24;
     const dynamicSize = Math.max(baseSize, Math.min(60, baseSize + Math.log2(degree + 1) * 6));
+    const annotation = annotationForNode(
+      node,
+      nodeTotals.get(node.id) ?? { invoiceCount: 0, totalDPP: 0 },
+      annotationMode
+    );
 
     elements.push({
       group: 'nodes',
       data: {
         id: node.id,
         companyName: node.companyName,
+        displayLabel: annotation ? `${node.companyName}\n${annotation}` : node.companyName,
+        annotation,
         fullName: node.fullName || node.companyName,
         nodeType: node.nodeType,
         isImport: !!node.isImport,
@@ -106,9 +145,10 @@ export function buildCytoscapeElements(graph: NormalizedGraph): cytoscape.Elemen
  */
 export function buildSfiCytoscapeElements(
   graph: NormalizedGraph,
-  overview: SfiTransactionOverview
+  overview: SfiTransactionOverview,
+  annotationMode: NodeAnnotationMode = 'director'
 ): cytoscape.ElementDefinition[] {
-  const canonicalElements = buildCytoscapeElements(graph);
+  const canonicalElements = buildCytoscapeElements(graph, annotationMode);
   const canonicalNodes = new Map(
     canonicalElements
       .filter((element) => element.group === 'nodes')

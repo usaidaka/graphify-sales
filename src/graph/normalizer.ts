@@ -221,7 +221,12 @@ export function buildNodeMap(
 
   // Process transaction rows for sellers and buyers
   rows.forEach(({ row }) => {
-    const processCompany = (name: string, isCompanyImport: boolean) => {
+    const processCompany = (
+      name: string,
+      isCompanyImport: boolean,
+      director = '',
+      kppLabel = ''
+    ) => {
       const resolved = resolveCompany(name, aliasMap);
       if (!resolved.key) return;
 
@@ -233,17 +238,36 @@ export function buildNodeMap(
           // Internal membership is determined from the transaction's source
           // name, not from an automatically generated abbreviation.
           nodeType: classifyNode(name, internalSet),
-          isImport: isCompanyImport
+          isImport: isCompanyImport,
+          directors: director ? [director] : [],
+          kppLabels: kppLabel ? [kppLabel] : [],
         });
-      } else if (isCompanyImport) {
-        nodeMap.get(resolved.key)!.isImport = true;
+      } else {
+        const node = nodeMap.get(resolved.key)!;
+        if (isCompanyImport) node.isImport = true;
+        if (director && !node.directors?.includes(director)) {
+          node.directors = [...(node.directors ?? []), director];
+        }
+        if (kppLabel && !node.kppLabels?.includes(kppLabel)) {
+          node.kppLabels = [...(node.kppLabels ?? []), kppLabel];
+        }
       }
     };
 
     // Import is an endpoint role. A transaction with one foreign party must
     // not make its domestic counterparty look like an import company too.
-    processCompany(row.sellerName, row.sellerIsImport ?? false);
-    processCompany(row.buyerName, row.buyerIsImport ?? false);
+    processCompany(
+      row.sellerName,
+      row.sellerIsImport ?? false,
+      row.sellerDirector,
+      row.sellerKpp
+    );
+    processCompany(
+      row.buyerName,
+      row.buyerIsImport ?? false,
+      row.buyerDirector,
+      row.buyerKpp
+    );
   });
 
   return nodeMap;
@@ -260,7 +284,7 @@ export function mergeEdges(rows: DatasetRow[], aliasMap: Map<string, AliasInfo>)
     
     const edgeId = `${sourceResolved.key}→${targetResolved.key}`;
     const statusNorm = (row.status || '').trim().toLowerCase();
-    const isCancelledOrReplaced = statusNorm.includes('batal') || statusNorm.includes('diganti');
+    const isCancelledOrReplaced = statusNorm.startsWith('batal') || statusNorm.startsWith('diganti');
 
     if (!edgeMap.has(edgeId)) {
       edgeMap.set(edgeId, {
@@ -328,7 +352,7 @@ export function normalize(
   // Apply all transaction-level filters before merging so totals remain accurate.
   const filteredRows = rawRows.filter(({ row }) => {
     const statusNorm = (row.status || '').trim().toLowerCase();
-    const isCancelledOrReplaced = statusNorm.includes('batal') || statusNorm.includes('diganti');
+    const isCancelledOrReplaced = statusNorm.startsWith('batal') || statusNorm.startsWith('diganti');
     const matchesUniverse = universeMode === 'active'
       ? !isCancelledOrReplaced
       : isCancelledOrReplaced;

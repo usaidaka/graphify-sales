@@ -1,16 +1,14 @@
 import React, { useMemo } from 'react';
 import { useGraphData } from '../context/GraphDataContext';
-import { useUI } from '../context/UIContext';
 import './StatisticsPanel.css';
 
 export const StatisticsPanel: React.FC = () => {
   const { graph } = useGraphData();
-  const { state } = useUI();
 
   const stats = useMemo(() => {
     if (!graph) return null;
 
-    const activeEdges = graph.edges.filter(e => e.datasets.some(ds => state.activeLayers.has(ds as any)));
+    const activeEdges = graph.edges;
     
     // Nodes that have at least one active edge
     const activeNodeIds = new Set<string>();
@@ -66,7 +64,7 @@ export const StatisticsPanel: React.FC = () => {
       topCustomer: { name: getNodeName(topCustomerId), count: maxIn },
       mostConnected: { name: getNodeName(mostConnectedId), count: maxTotal }
     };
-  }, [graph, state.activeLayers]);
+  }, [graph]);
 
   if (!stats) return null;
 

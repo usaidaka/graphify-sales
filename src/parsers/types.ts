@@ -14,6 +14,10 @@ export interface RawTransactionRow {
   isImport: boolean;
   sellerIsImport?: boolean;
   buyerIsImport?: boolean;
+  sellerDirector?: string;
+  buyerDirector?: string;
+  sellerKpp?: string;
+  buyerKpp?: string;
 }
 
 export interface InternalCompanyMaster {

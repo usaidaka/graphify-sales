@@ -1,181 +1,105 @@
 .layer-manager {
-  padding: 16px;
   display: flex;
-  min-height: 0;
+  flex: 0 0 auto;
   flex-direction: column;
-  gap: 16px;
-  overflow-y: auto;
+  gap: 14px;
+  padding: 16px;
   z-index: 1;
+}
+
+.layer-manager h2 {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .control-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 7px;
 }
 
-.control-group h3 {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
-}
-
-.period-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.year-range-grid.same-year {
-  grid-template-columns: 1fr;
-}
-
-.same-year-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: fit-content;
-  color: var(--text-main);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  user-select: none;
-}
-
-.same-year-toggle input {
-  width: 14px;
-  height: 14px;
+.control-group h3,
+.filter-select > span {
   margin: 0;
-  accent-color: var(--accent-color);
-  cursor: pointer;
-}
-
-.same-year-toggle:has(input:focus-visible) {
-  outline: 2px solid var(--accent-color);
-  outline-offset: 3px;
-  border-radius: 3px;
-}
-
-.period-month-grid {
-  grid-template-columns: 1fr;
-  margin-top: 8px;
-}
-
-.period-range-summary {
-  color: var(--accent-color);
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.period-filter {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.period-filter span {
   color: var(--text-muted);
   font-size: 10px;
-  font-weight: 600;
-}
-
-.period-filter select {
-  width: 100%;
-  min-width: 0;
-  padding: 8px 26px 8px 9px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.3);
-  color: var(--text-main);
-  font-family: inherit;
-  font-size: 11px;
-  cursor: pointer;
-  outline: none;
-}
-
-.period-filter select:focus {
-  border-color: var(--accent-color);
-}
-
-.period-filter select option {
-  background: var(--bg-panel);
-  color: var(--text-main);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .segmented-control {
   display: flex;
-  background: rgba(0, 0, 0, 0.3);
-  padding: 3px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
   gap: 4px;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
 }
 
 .segmented-btn {
+  min-width: 0;
   flex: 1;
-  padding: 6px 8px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-muted);
-  background: transparent;
-  border: none;
+  padding: 7px 8px;
+  border: 0;
   border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease;
   white-space: nowrap;
 }
 
 .segmented-btn:hover {
-  color: #ffffff;
   background: rgba(255, 255, 255, 0.05);
+  color: #fff;
 }
 
 .segmented-btn.active {
   background: #3b82f6;
-  color: #ffffff;
-  font-weight: 600;
+  color: #fff;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
-.layer-list {
+.segmented-btn:focus-visible,
+.filter-select select:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.filter-select {
   display: flex;
+  min-width: 0;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
 
-.layer-toggle {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
+.filter-select select {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 30px 9px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.layer-toggle:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.layer-toggle.active {
-  background: rgba(59, 130, 246, 0.15);
-  border-color: rgba(59, 130, 246, 0.3);
-}
-
-.layer-toggle input[type="checkbox"] {
-  width: 14px;
-  height: 14px;
-  accent-color: var(--accent-color);
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 11px;
   cursor: pointer;
 }
 
-.layer-label {
-  font-size: 13px;
-  font-weight: 500;
+.filter-select select:disabled {
+  cursor: wait;
+  opacity: 0.6;
 }
 
+.filter-select option {
+  background: var(--bg-panel);
+  color: var(--text-main);
+}

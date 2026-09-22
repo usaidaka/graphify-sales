@@ -1,177 +1,125 @@
 import React from 'react';
-import { useUI, DatasetName } from '../context/UIContext';
+import { useUI } from '../context/UIContext';
 import { useGraphData } from '../context/GraphDataContext';
+import type { NodeAnnotationMode } from '../graph/types';
 import './LayerManager.css';
+
+const ANNOTATION_OPTIONS: { value: NodeAnnotationMode; label: string }[] = [
+  { value: 'director', label: 'Dirkom' },
+  { value: 'dpp', label: 'Nilai DPP' },
+  { value: 'invoice-count', label: 'Faktur' },
+  { value: 'kpp', label: 'KPP' },
+];
 
 export const LayerManager: React.FC = () => {
   const { state, dispatch } = useUI();
   const { availableYears } = useGraphData();
-  
-  const layers: { id: DatasetName; label: string }[] = [
-    { id: 'FM', label: 'FM' },
-    { id: 'FK', label: 'FK' },
-    { id: 'FM_CRTX', label: 'FM_CRTX' },
-    { id: 'FK_CRTX', label: 'FK_CRTX' },
-  ];
-
-  const handleToggleLayer = (layerId: DatasetName) => {
-    dispatch({ type: 'TOGGLE_LAYER', payload: layerId });
-  };
-
-  const months = [
-    'Januari',
-    'Februari',
-    'Maret',
-    'April',
-    'Mei',
-    'Juni',
-    'Juli',
-    'Agustus',
-    'September',
-    'Oktober',
-    'November',
-    'Desember',
-  ];
-  const yearRangeLabel =
-    state.yearFrom === 'all' && state.yearTo === 'all'
-      ? 'Seluruh tahun'
-      : state.sameYear && state.yearFrom !== 'all'
-        ? `${state.yearFrom}`
-      : state.yearFrom === 'all'
-        ? `Sampai ${state.yearTo}`
-        : state.yearTo === 'all'
-          ? `${state.yearFrom} sampai terbaru`
-          : `${state.yearFrom} – ${state.yearTo}`;
 
   return (
-    <div className="layer-manager glass-panel">
+    <section className="layer-manager glass-panel" aria-labelledby="filter-title">
+      <h2 id="filter-title">Filter</h2>
+
       <div className="control-group">
-        <h3>Periode Transaksi</h3>
-        <label className="same-year-toggle">
-          <input
-            type="checkbox"
-            checked={state.sameYear}
-            onChange={(event) => dispatch({
-              type: 'SET_SAME_YEAR',
-              payload: event.target.checked,
-            })}
-          />
-          <span>Di tahun yang sama</span>
-        </label>
-
-        <div className={`period-filter-grid year-range-grid ${state.sameYear ? 'same-year' : ''}`}>
-          <label className="period-filter">
-            <span>{state.sameYear ? 'Tahun' : 'Dari Tahun'}</span>
-            <select
-              value={state.yearFrom}
-              onChange={(event) => dispatch({
-                type: 'SET_YEAR_FROM',
-                payload: event.target.value === 'all' ? 'all' : Number(event.target.value),
-              })}
-            >
-              <option value="all">{state.sameYear ? 'Semua Tahun' : 'Awal'}</option>
-              {[...availableYears].reverse().map(year => (
-                <option key={year} value={year}>{year}</option>
-              ))}
-            </select>
-          </label>
-
-          {!state.sameYear && (
-            <label className="period-filter">
-              <span>Sampai Tahun</span>
-              <select
-                value={state.yearTo}
-                onChange={(event) => dispatch({
-                  type: 'SET_YEAR_TO',
-                  payload: event.target.value === 'all' ? 'all' : Number(event.target.value),
-                })}
-              >
-                <option value="all">Terakhir</option>
-                {[...availableYears].reverse().map(year => (
-                  <option key={year} value={year}>{year}</option>
-                ))}
-              </select>
-            </label>
-          )}
-        </div>
-        <span className="period-range-summary">{yearRangeLabel}</span>
-
-        <div className="period-filter-grid period-month-grid">
-          <label className="period-filter">
-            <span>Bulan</span>
-            <select
-              value={state.selectedMonth}
-              onChange={(event) => dispatch({
-                type: 'SET_MONTH_FILTER',
-                payload: event.target.value === 'all' ? 'all' : Number(event.target.value),
-              })}
-            >
-              <option value="all">Semua Bulan</option>
-              {months.map((month, index) => (
-                <option key={month} value={index + 1}>{month}</option>
-              ))}
-            </select>
-          </label>
+        <h3>Orientasi</h3>
+        <div className="segmented-control">
+          <button
+            type="button"
+            className={`segmented-btn ${state.transactionView === 'sales' ? 'active' : ''}`}
+            aria-pressed={state.transactionView === 'sales'}
+            onClick={() => dispatch({ type: 'SET_TRANSACTION_VIEW', payload: 'sales' })}
+          >
+            Penjualan
+          </button>
+          <button
+            type="button"
+            className={`segmented-btn ${state.transactionView === 'purchases' ? 'active' : ''}`}
+            aria-pressed={state.transactionView === 'purchases'}
+            onClick={() => dispatch({ type: 'SET_TRANSACTION_VIEW', payload: 'purchases' })}
+          >
+            Pembelian
+          </button>
         </div>
       </div>
 
-      {/* Universe Switcher */}
       <div className="control-group">
-        <h3>Faktur Universe</h3>
+        <label className="filter-select">
+          <span>Tahun</span>
+          <select
+            value={state.yearFrom}
+            disabled={availableYears.length === 0}
+            onChange={(event) => dispatch({
+              type: 'SET_YEAR',
+              payload: Number(event.target.value),
+            })}
+          >
+            {state.yearFrom === 'all' && <option value="all">Memuat tahun...</option>}
+            {availableYears.map((year) => (
+              <option key={year} value={year}>{year}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="control-group">
+        <h3>Status</h3>
         <div className="segmented-control">
           <button
+            type="button"
             className={`segmented-btn ${state.universeMode === 'active' ? 'active' : ''}`}
+            aria-pressed={state.universeMode === 'active'}
             onClick={() => dispatch({ type: 'SET_UNIVERSE_MODE', payload: 'active' })}
           >
             Normal
           </button>
           <button
+            type="button"
             className={`segmented-btn ${state.universeMode === 'cancelled-replaced' ? 'active' : ''}`}
+            aria-pressed={state.universeMode === 'cancelled-replaced'}
             onClick={() => dispatch({ type: 'SET_UNIVERSE_MODE', payload: 'cancelled-replaced' })}
           >
-            Diganti & Batal
+            Diganti &amp; Batal
           </button>
         </div>
       </div>
 
-      {/* Scope Switcher */}
       <div className="control-group">
-        <h3>Scope Filter</h3>
+        <h3>Jaringan</h3>
         <div className="segmented-control">
           <button
-            className={`segmented-btn ${state.scopeFilter === 'with-external' ? 'active' : ''}`}
-            onClick={() => dispatch({ type: 'SET_SCOPE_FILTER', payload: 'with-external' })}
-          >
-            With External
-          </button>
-          <button
+            type="button"
             className={`segmented-btn ${state.scopeFilter === 'internal-only' ? 'active' : ''}`}
+            aria-pressed={state.scopeFilter === 'internal-only'}
             onClick={() => dispatch({ type: 'SET_SCOPE_FILTER', payload: 'internal-only' })}
           >
-            Internal Only
+            Internal
+          </button>
+          <button
+            type="button"
+            className={`segmented-btn ${state.scopeFilter === 'with-external' ? 'active' : ''}`}
+            aria-pressed={state.scopeFilter === 'with-external'}
+            onClick={() => dispatch({ type: 'SET_SCOPE_FILTER', payload: 'with-external' })}
+          >
+            External
           </button>
         </div>
       </div>
 
-      {/* Dataset Layers */}
       <div className="control-group">
-        <h3>Datasets</h3>
-        <div className="layer-list">
-          {layers.map(layer => {
-            const isActive = state.activeLayers.has(layer.id);
-            return (
-              <label key={layer.id} className={`layer-toggle ${isActive ? 'active' : ''}`}>
-                <input
-                  type="checkbox"
-                  checked={isActive}
-                  onChange={() => handleToggleLayer(layer.id)}
-                />
-                <span className="layer-label">{layer.label}</span>
-              </label>
-            );
-          })}
-        </div>
+        <label className="filter-select">
+          <span>Keterangan</span>
+          <select
+            value={state.nodeAnnotationMode}
+            onChange={(event) => dispatch({
+              type: 'SET_NODE_ANNOTATION_MODE',
+              payload: event.target.value as NodeAnnotationMode,
+            })}
+          >
+            {ANNOTATION_OPTIONS.map(({ value, label }) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </label>
       </div>
-    </div>
+    </section>
   );
 };

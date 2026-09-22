@@ -77,7 +77,7 @@ function collectLayoutOptions(
 ): SfiLayoutOptions {
   const visibleNodes = cy.nodes().filter((node) => overview.visibleNodeIds.has(node.id()));
   const diameter = uniformCircularNodeDiameter(
-    visibleNodes.map((node) => String(node.data('companyName') ?? ''))
+    visibleNodes.map((node) => String(node.data('displayLabel') ?? node.data('companyName') ?? ''))
   );
   const nodeSizes = new Map<string, VisualSize>();
   const terminalInsideNodeIds = new Set<string>();
@@ -495,7 +495,7 @@ export const NetworkGraph: React.FC = () => {
   useEffect(() => {
     if (loading || !graph || !containerRef.current) return;
     const overview = createSfiTransactionOverview(graph, state.transactionView);
-    const elements = buildSfiCytoscapeElements(graph, overview);
+    const elements = buildSfiCytoscapeElements(graph, overview, state.nodeAnnotationMode);
 
     if (!cyRef.current) {
       const cy = cytoscape({
@@ -616,7 +616,14 @@ export const NetworkGraph: React.FC = () => {
       }
       setLayoutRunning(false);
     });
-  }, [graph, loading, state.transactionView, state.sfiLayoutMode, dispatch]);
+  }, [
+    graph,
+    loading,
+    state.transactionView,
+    state.sfiLayoutMode,
+    state.nodeAnnotationMode,
+    dispatch,
+  ]);
 
   useEffect(() => {
     const canvas = containerRef.current;
@@ -1021,6 +1028,7 @@ export const NetworkGraph: React.FC = () => {
             id: externalGroupId,
             canonicalCompanyId: externalGroupId,
             companyName: String(memberIds.length),
+            displayLabel: String(memberIds.length),
             fullName: direction === 'incoming'
               ? `${memberIds.length} pemasok eksternal`
               : `${memberIds.length} pelanggan eksternal`,
@@ -1356,28 +1364,7 @@ export const NetworkGraph: React.FC = () => {
         </div>
       )}
 
-      <div className="sfi-view-controls glass-panel" aria-label="Pengaturan visual SFI">
-        <div className="sfi-control-group" role="group" aria-label="Jenis transaksi">
-          <span>Visual</span>
-          <div className="sfi-segmented-control">
-            <button
-              type="button"
-              className={state.transactionView === 'sales' ? 'active' : ''}
-              aria-pressed={state.transactionView === 'sales'}
-              onClick={() => dispatch({ type: 'SET_TRANSACTION_VIEW', payload: 'sales' })}
-            >
-              Penjualan
-            </button>
-            <button
-              type="button"
-              className={state.transactionView === 'purchases' ? 'active' : ''}
-              aria-pressed={state.transactionView === 'purchases'}
-              onClick={() => dispatch({ type: 'SET_TRANSACTION_VIEW', payload: 'purchases' })}
-            >
-              Pembelian
-            </button>
-          </div>
-        </div>
+      <div className="sfi-view-controls glass-panel" aria-label="Pengaturan posisi SFI">
         <div className="sfi-control-group" role="group" aria-label="Mode posisi">
           <span>Posisi</span>
           <div className="sfi-segmented-control">
@@ -1406,7 +1393,7 @@ export const NetworkGraph: React.FC = () => {
           <strong>
             {overviewSummary.hasSfi ? `Tidak ada transaksi ${viewLabel}` : 'SFI tidak ditemukan'}
           </strong>
-          <span>Coba pilih periode, dataset, universe, atau scope lain.</span>
+          <span>Coba pilih orientasi, tahun, status, atau jaringan lain.</span>
         </div>
       )}
 

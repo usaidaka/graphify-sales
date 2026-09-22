@@ -2,7 +2,7 @@ export const graphStyles: any = [
   {
     selector: 'node',
     style: {
-      'label': 'data(companyName)',
+      'label': 'data(displayLabel)',
       'font-size': '16px',
       'font-family': 'Inter, sans-serif',
       'text-valign': 'center',

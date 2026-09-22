@@ -48,6 +48,16 @@ function parseYear(val: any): number | null {
   return Number.isInteger(year) && year > 0 ? year : null;
 }
 
+/** NPWP lama menyimpan tiga digit kode KPP sebelum tiga digit cabang. */
+export function extractKppLabel(npwp: string): string {
+  const normalized = String(npwp ?? '').trim();
+  const formattedMatch = normalized.match(/-(\d{3})\.\d{3}$/);
+  if (formattedMatch) return `KPP ${formattedMatch[1]}`;
+
+  const digits = normalized.replace(/\D/g, '');
+  return digits.length === 15 ? `KPP ${digits.slice(9, 12)}` : '';
+}
+
 function findHeaderRowIndex(json: any[][]): number {
   for (let i = 0; i < Math.min(json.length, 10); i++) {
     const row = json[i];
@@ -83,7 +93,7 @@ function getColumnValue(row: any[], colIndexMap: Record<string, number>, possibl
   return undefined;
 }
 
-function extractRows(sheet: xlsx.WorkSheet, headerMap: Record<string, string>, defaultStartRow: number = 1): RawTransactionRow[] {
+function extractRows(sheet: xlsx.WorkSheet, headerMap: Record<string, string>): RawTransactionRow[] {
   const json: any[][] = xlsx.utils.sheet_to_json(sheet, { header: 1 });
   if (json.length <= 1) return [];
 
@@ -115,6 +125,20 @@ function extractRows(sheet: xlsx.WorkSheet, headerMap: Record<string, string>, d
     const tahun = String(getColumnValue(row, colIndex, [headerMap.tahun, 'tahun']) || '');
     const month = parseMonth(masa);
     const year = parseYear(tahun);
+    const sellerDirector = String(getColumnValue(row, colIndex, [
+      headerMap.sellerDirector,
+      'penjual (dir)',
+      'penandatangan (dir)',
+    ].filter(Boolean)) || '').trim();
+    const buyerDirector = String(getColumnValue(row, colIndex, [
+      headerMap.buyerDirector,
+      'pembeli (dir)',
+      'pembeli ttd.',
+    ].filter(Boolean)) || '').trim();
+    const sellerKpp = String(getColumnValue(row, colIndex, ['kpp penjual']) || '').trim()
+      || extractKppLabel(sellerNpwp);
+    const buyerKpp = String(getColumnValue(row, colIndex, ['kpp pembeli']) || '').trim()
+      || extractKppLabel(buyerNpwp);
     
     const sellerIsImport = isNpwpEmptyOrImport(sellerNpwp);
     const buyerIsImport = isNpwpEmptyOrImport(buyerNpwp);
@@ -135,7 +159,11 @@ function extractRows(sheet: xlsx.WorkSheet, headerMap: Record<string, string>, d
       year,
       isImport,
       sellerIsImport,
-      buyerIsImport
+      buyerIsImport,
+      sellerDirector,
+      buyerDirector,
+      sellerKpp,
+      buyerKpp,
     });
   }
 
@@ -206,10 +234,10 @@ export function parseWorkbook(buffer: ArrayBuffer): ParsedWorkbook {
     : { companies: [], companyMaster: [] };
 
   return {
-    fm: workbook.Sheets['FM'] ? extractRows(workbook.Sheets['FM'], COLUMN_MAPS.FM, 1) : [],
-    fk: workbook.Sheets['FK'] ? extractRows(workbook.Sheets['FK'], COLUMN_MAPS.FK, 1) : [],
-    fmCrtx: workbook.Sheets['FM_CRTX'] ? extractRows(workbook.Sheets['FM_CRTX'], COLUMN_MAPS.FM_CRTX, 1) : [],
-    fkCrtx: workbook.Sheets['FK_CRTX'] ? extractRows(workbook.Sheets['FK_CRTX'], COLUMN_MAPS.FK_CRTX, 1) : [],
+    fm: workbook.Sheets['FM'] ? extractRows(workbook.Sheets['FM'], COLUMN_MAPS.FM) : [],
+    fk: workbook.Sheets['FK'] ? extractRows(workbook.Sheets['FK'], COLUMN_MAPS.FK) : [],
+    fmCrtx: workbook.Sheets['FM_CRTX'] ? extractRows(workbook.Sheets['FM_CRTX'], COLUMN_MAPS.FM_CRTX) : [],
+    fkCrtx: workbook.Sheets['FK_CRTX'] ? extractRows(workbook.Sheets['FK_CRTX'], COLUMN_MAPS.FK_CRTX) : [],
     dataPerusahaan: dpResult.companies,
     companyMaster: dpResult.companyMaster
   };

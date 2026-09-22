@@ -11,7 +11,9 @@ export const COLUMN_MAPS = {
     approval: 'Status Approval',
     status: 'Status',
     masa: 'Masa',
-    tahun: 'Tahun'
+    tahun: 'Tahun',
+    sellerDirector: 'Penjual (Dir)',
+    buyerDirector: 'Pembeli (Dir)'
   },
   FK: {
     seller: 'Penjual',
@@ -24,7 +26,9 @@ export const COLUMN_MAPS = {
     approval: 'Status Approval',
     status: 'Status',
     masa: 'Masa',
-    tahun: 'Tahun'
+    tahun: 'Tahun',
+    sellerDirector: 'Penandatangan (Dir)',
+    buyerDirector: 'Pembeli (Dir)'
   },
   FM_CRTX: {
     seller: 'Penjual',
@@ -37,7 +41,9 @@ export const COLUMN_MAPS = {
     approval: 'Status Approval',
     status: 'Status',
     masa: 'Masa',
-    tahun: 'Tahun'
+    tahun: 'Tahun',
+    sellerDirector: 'Penjual (Dir)',
+    buyerDirector: 'Pembeli (Dir)'
   },
   FK_CRTX: {
     seller: 'Penjual',
@@ -50,7 +56,9 @@ export const COLUMN_MAPS = {
     approval: 'Stat. Approval',
     status: 'Status',
     masa: 'Masa',
-    tahun: 'Tahun'
+    tahun: 'Tahun',
+    sellerDirector: 'Penandatangan (Dir)',
+    buyerDirector: 'Pembeli ttd.'
   },
   DATA_PERUSAHAAN: {
     company: 'Perusahaan',

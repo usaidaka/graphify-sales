@@ -6,7 +6,6 @@ import { StatisticsPanel } from './components/StatisticsPanel';
 import { RelationshipDetailPanel } from './components/RelationshipDetailPanel';
 import { CompanyDetailPanel } from './components/CompanyDetailPanel';
 import { ExternalGroupDetailPanel } from './components/ExternalGroupDetailPanel';
-import { Legend } from './components/Legend';
 import { useUI } from './context/UIContext';
 import './App.css';
 
@@ -37,22 +36,13 @@ function App() {
         
         {/* Left Sidebar */}
         <div className="left-sidebar">
-          <div className="app-header glass-panel">
-            <h1>Sales Connection Explorer</h1>
-            <p>Interactive Network Graph MVP</p>
-          </div>
-          
           <CompanyExplorer />
           <LayerManager />
-          
-          <div className="legend-wrapper">
-            <Legend />
-          </div>
+          <StatisticsPanel />
         </div>
 
         {/* Right Sidebar */}
         <div className="right-sidebar">
-          <StatisticsPanel />
           <RelationshipDetailPanel />
           <CompanyDetailPanel />
           <ExternalGroupDetailPanel />

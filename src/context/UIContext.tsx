@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useReducer, ReactNode } from 'react';
 import { DEFAULT_FOCUS_SORT_METRIC } from '../graph/focusRanking';
 import type { SfiLayoutMode, TransactionView } from '../graph/sfiTransaction';
+import type { NodeAnnotationMode } from '../graph/types';
 
 export type DatasetName = 'FM' | 'FK' | 'FM_CRTX' | 'FK_CRTX';
 export type ScopeFilter = 'with-external' | 'internal-only';
@@ -29,6 +30,7 @@ export interface UIState {
   selectedMonth: PeriodFilter;
   transactionView: TransactionView;
   sfiLayoutMode: SfiLayoutMode;
+  nodeAnnotationMode: NodeAnnotationMode;
 }
 
 type UIAction =
@@ -45,10 +47,12 @@ type UIAction =
   | { type: 'SET_FOCUS_SORT_METRIC'; payload: FocusSortMetric }
   | { type: 'SET_YEAR_FROM'; payload: PeriodFilter }
   | { type: 'SET_YEAR_TO'; payload: PeriodFilter }
+  | { type: 'SET_YEAR'; payload: number }
   | { type: 'SET_SAME_YEAR'; payload: boolean }
   | { type: 'SET_MONTH_FILTER'; payload: PeriodFilter }
   | { type: 'SET_TRANSACTION_VIEW'; payload: TransactionView }
-  | { type: 'SET_SFI_LAYOUT_MODE'; payload: SfiLayoutMode };
+  | { type: 'SET_SFI_LAYOUT_MODE'; payload: SfiLayoutMode }
+  | { type: 'SET_NODE_ANNOTATION_MODE'; payload: NodeAnnotationMode };
 
 const initialState: UIState = {
   activeLayers: new Set(['FM', 'FK', 'FM_CRTX', 'FK_CRTX']),
@@ -64,7 +68,8 @@ const initialState: UIState = {
   sameYear: false,
   selectedMonth: 'all',
   transactionView: 'sales',
-  sfiLayoutMode: 'hierarchy'
+  sfiLayoutMode: 'hierarchy',
+  nodeAnnotationMode: 'director',
 };
 
 function uiReducer(state: UIState, action: UIAction): UIState {
@@ -134,6 +139,17 @@ function uiReducer(state: UIState, action: UIAction): UIState {
         focusedExternalGroup: null,
         selectedEdgeId: null,
       };
+    case 'SET_YEAR':
+      return {
+        ...state,
+        yearFrom: action.payload,
+        yearTo: action.payload,
+        sameYear: true,
+        selectedMonth: 'all',
+        focusedNodeId: null,
+        focusedExternalGroup: null,
+        selectedEdgeId: null,
+      };
     case 'SET_SAME_YEAR': {
       const selectedYear = state.yearFrom !== 'all' ? state.yearFrom : state.yearTo;
       return {
@@ -169,6 +185,11 @@ function uiReducer(state: UIState, action: UIAction): UIState {
         focusedNodeId: null,
         focusedExternalGroup: null,
         selectedEdgeId: null,
+      };
+    case 'SET_NODE_ANNOTATION_MODE':
+      return {
+        ...state,
+        nodeAnnotationMode: action.payload,
       };
     default:
       return state;

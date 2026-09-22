@@ -1,4 +1,5 @@
 export type NodeType = 'internal' | 'external' | 'distributor' | 'special-external' | 'wapu';
+export type NodeAnnotationMode = 'director' | 'dpp' | 'invoice-count' | 'kpp';
 
 export interface NodeData {
   id: string; // The canonical abbreviation or normalized company name
@@ -6,6 +7,8 @@ export interface NodeData {
   fullName?: string; // Full company name if available
   nodeType: NodeType;
   isImport?: boolean;
+  directors?: string[];
+  kppLabels?: string[];
 }
 
 export interface EdgeData {
