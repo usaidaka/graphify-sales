@@ -162,16 +162,17 @@ export const graphStyles: any = [
   {
     selector: 'node.sfi-overview-node',
     style: {
-      'width': 38,
-      'height': 38,
+      'width': 'data(size)',
+      'height': 'data(size)',
+      'text-max-width': 'data(labelMaxWidth)',
       'border-width': 2
     }
   },
   {
     selector: 'node.sfi-center',
     style: {
-      'width': 56,
-      'height': 56,
+      'width': 'data(size)',
+      'height': 'data(size)',
       'shape': 'diamond',
       'background-color': '#2563eb',
       'border-color': '#93c5fd',
@@ -234,6 +235,7 @@ export const graphStyles: any = [
     selector: 'node.focus-supplemental',
     style: {
       'border-width': 3,
+      'text-max-width': 'data(labelMaxWidth)',
       'z-index': 18
     }
   },

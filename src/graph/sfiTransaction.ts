@@ -22,6 +22,9 @@ const VISUAL_BRANCH_ORDER: PrincipalKey[] = ['LDN', 'LJ', 'MSP', 'GBA'];
 const LEGAL_PREFIXES = new Set(['pt', 'cv', 'pd', 'ud']);
 const HIERARCHY_LEVEL_GAP = 120;
 const HIERARCHY_LABEL_PADDING = 12;
+const HIERARCHY_SIBLING_GAP = 48;
+const HIERARCHY_SECTOR_USAGE = 0.78;
+const HIERARCHY_LEVEL_SPREAD = 1;
 const VALUE_FIRST_STEP = 108;
 const VALUE_RANK_GAP = 46;
 export const SFI_INTERNAL_BOUNDARY_PADDING = 30;
@@ -156,6 +159,27 @@ function compareEdges(a: EdgeData, b: EdgeData): number {
   return edgeValue(b) - edgeValue(a)
     || b.invoiceCount - a.invoiceCount
     || a.id.localeCompare(b.id);
+}
+
+function selectClosestIncomingEdge(
+  edges: EdgeData[],
+  childId: string,
+  levelByNode: ReadonlyMap<string, number>,
+  view: TransactionView
+): EdgeData | undefined {
+  const childLevel = levelByNode.get(childId);
+  if (childLevel === undefined) return undefined;
+  return edges
+    .filter((edge) => {
+      const { parent, child } = traversalEndpoints(edge, view);
+      const parentLevel = levelByNode.get(parent);
+      return child === childId && parentLevel !== undefined && parentLevel < childLevel;
+    })
+    .sort((a, b) => {
+      const aParentLevel = levelByNode.get(traversalEndpoints(a, view).parent) ?? -1;
+      const bParentLevel = levelByNode.get(traversalEndpoints(b, view).parent) ?? -1;
+      return bParentLevel - aParentLevel || compareEdges(a, b);
+    })[0];
 }
 
 /**
@@ -365,13 +389,7 @@ function buildCanonicalAnalysis(
       || a.localeCompare(b)
     )
     .forEach((nodeId) => {
-      const level = levelByNode.get(nodeId)!;
-      const selected = visibleEdges
-        .filter((edge) => {
-          const { parent, child } = traversalEndpoints(edge, view);
-          return child === nodeId && levelByNode.get(parent) === level - 1;
-        })
-        .sort(compareEdges)[0];
+      const selected = selectClosestIncomingEdge(visibleEdges, nodeId, levelByNode, view);
       if (!selected) return;
       const { parent } = traversalEndpoints(selected, view);
       parentByNode.set(nodeId, parent);
@@ -656,13 +674,8 @@ export function createSfiTransactionOverview(
     [...localLevel.entries()]
       .filter(([canonicalId]) => canonicalId !== slot.hubNodeId)
       .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
-      .forEach(([canonicalId, level]) => {
-        const selected = branchEdges
-          .filter((edge) => {
-            const { parent, child } = traversalEndpoints(edge, view);
-            return child === canonicalId && localLevel.get(parent) === level - 1;
-          })
-          .sort(compareEdges)[0];
+      .forEach(([canonicalId]) => {
+        const selected = selectClosestIncomingEdge(branchEdges, canonicalId, localLevel, view);
         if (!selected) return;
         const { parent } = traversalEndpoints(selected, view);
         const instanceId = instanceByCanonical.get(canonicalId)!;
@@ -827,18 +840,38 @@ function angleByNode(
     || a[0].localeCompare(b[0])
   );
   orderedGroups.forEach((nodes) => {
+    const root = overview.branchRootByNode.get(nodes[0]) ?? nodes[0];
+    const base = rootAngles.get(root) ?? 0;
+    const level = overview.levelByNode.get(nodes[0]) ?? 0;
+    const connectivityAngle = (nodeId: string) => {
+      const closerNeighborAngles = overview.edgeInstances.flatMap((edge) => {
+        const neighborId = edge.source === nodeId
+          ? edge.target
+          : edge.target === nodeId
+            ? edge.source
+            : null;
+        if (!neighborId || (overview.levelByNode.get(neighborId) ?? level) >= level) return [];
+        const angle = result.get(neighborId);
+        return angle === undefined ? [] : [angle];
+      });
+      if (closerNeighborAngles.length === 0) {
+        return result.get(overview.parentByNode.get(nodeId) ?? '') ?? base;
+      }
+      const averageOffset = closerNeighborAngles.reduce((sum, angle) => sum + Math.atan2(
+        Math.sin(angle - base),
+        Math.cos(angle - base)
+      ), 0) / closerNeighborAngles.length;
+      return base + averageOffset;
+    };
     nodes.sort((a, b) =>
-      (result.get(overview.parentByNode.get(a) ?? '') ?? 0)
-        - (result.get(overview.parentByNode.get(b) ?? '') ?? 0)
+      connectivityAngle(a) - connectivityAngle(b)
       || (overview.valueRankByNode.get(a) ?? 0) - (overview.valueRankByNode.get(b) ?? 0)
       || a.localeCompare(b)
     );
-    const root = overview.branchRootByNode.get(nodes[0]) ?? nodes[0];
-    const base = rootAngles.get(root) ?? 0;
     const sectorLimit = branchRoots.has(root)
-      ? ((2 * Math.PI) / activeBranchCount) * 0.72
+      ? Math.min(Math.PI * 0.9, ((2 * Math.PI) / activeBranchCount) * 0.72)
       : 0.9;
-    const spread = Math.min(sectorLimit, 0.9, Math.max(0.12, nodes.length * 0.1));
+    const spread = nodes.length > 1 ? sectorLimit * 0.82 : 0;
     nodes.forEach((nodeId, index) => {
       const offset = nodes.length === 1
         ? 0
@@ -901,7 +934,8 @@ function countEdgeCrossings(
 function minimizeHierarchyCrossings(
   overview: SfiTransactionOverview,
   positions: Map<string, SfiPosition>,
-  visualLevelByNode: ReadonlyMap<string, number> = overview.levelByNode
+  visualLevelByNode: ReadonlyMap<string, number> = overview.levelByNode,
+  allowSectorExpansion = true
 ) {
   const nodesByRootAndLevel = new Map<string, string[]>();
   overview.visibleNodeIds.forEach((nodeId) => {
@@ -957,12 +991,274 @@ function minimizeHierarchyCrossings(
       if (!improved) return;
     }
   });
+
+  // A single swap can leave the crossing count unchanged even though it opens
+  // the way for a second level to be reordered. Try bounded two-swap moves so
+  // adjacent hierarchy levels can leave that plateau together.
+  const groupsByRoot = new Map<string, string[][]>();
+  nodesByRootAndLevel.forEach((nodeIds) => {
+    if (nodeIds.length < 2) return;
+    const root = overview.branchRootByNode.get(nodeIds[0]) ?? nodeIds[0];
+    const groups = groupsByRoot.get(root) ?? [];
+    groups.push(nodeIds);
+    groupsByRoot.set(root, groups);
+  });
+  groupsByRoot.forEach((groups, root) => {
+    const branchEdges = overview.edgeInstances.filter((edge) => {
+      const sourceRoot = edge.source === overview.sfiInstanceId
+        ? root
+        : overview.branchRootByNode.get(edge.source) ?? edge.source;
+      const targetRoot = edge.target === overview.sfiInstanceId
+        ? root
+        : overview.branchRootByNode.get(edge.target) ?? edge.target;
+      return sourceRoot === root && targetRoot === root;
+    });
+    if (branchEdges.length < 2) return;
+    const swaps = groups.flatMap((nodeIds) => {
+      const candidates: Array<[string, string]> = [];
+      for (let first = 0; first < nodeIds.length - 1; first += 1) {
+        const end = nodeIds.length <= 6 ? nodeIds.length : first + 2;
+        for (let second = first + 1; second < end; second += 1) {
+          candidates.push([nodeIds[first], nodeIds[second]]);
+        }
+      }
+      return candidates;
+    }).slice(0, 48);
+    const swapPositions = ([firstId, secondId]: [string, string]) => {
+      const first = positions.get(firstId);
+      const second = positions.get(secondId);
+      if (!first || !second) return;
+      positions.set(firstId, second);
+      positions.set(secondId, first);
+    };
+    let bestCrossings = countEdgeCrossings(branchEdges, positions);
+    for (let pass = 0; pass < 3 && bestCrossings > 0; pass += 1) {
+      let improved = false;
+      search: for (let firstIndex = 0; firstIndex < swaps.length; firstIndex += 1) {
+        swapPositions(swaps[firstIndex]);
+        if (countEdgeCrossings(branchEdges, positions) <= bestCrossings) {
+          for (let secondIndex = 0; secondIndex < swaps.length; secondIndex += 1) {
+            if (secondIndex === firstIndex) continue;
+            swapPositions(swaps[secondIndex]);
+            const candidateCrossings = countEdgeCrossings(branchEdges, positions);
+            if (candidateCrossings < bestCrossings) {
+              bestCrossings = candidateCrossings;
+              improved = true;
+              break search;
+            }
+            swapPositions(swaps[secondIndex]);
+          }
+        }
+        swapPositions(swaps[firstIndex]);
+      }
+      if (!improved) break;
+    }
+
+    const centerPosition = overview.sfiInstanceId
+      ? positions.get(overview.sfiInstanceId)
+      : undefined;
+    const rootPosition = positions.get(root);
+    if (!allowSectorExpansion || !centerPosition || !rootPosition || bestCrossings === 0) return;
+    const branchAngle = Math.atan2(
+      rootPosition.y - centerPosition.y,
+      rootPosition.x - centerPosition.x
+    );
+    const sectorHalfAngle = Math.PI
+      / Math.max(1, overview.branchSlots.filter(({ hubInstanceId }) => hubInstanceId).length)
+      * 0.9;
+    for (let pass = 0; pass < 3 && bestCrossings > 0; pass += 1) {
+      let improved = false;
+      for (const nodeIds of groups) {
+        if (nodeIds.length < 2 || nodeIds.length > 8) continue;
+        const ordered = [...nodeIds].sort((a, b) => {
+          const positionA = positions.get(a)!;
+          const positionB = positions.get(b)!;
+          const angleA = Math.atan2(
+            Math.sin(Math.atan2(positionA.y - centerPosition.y, positionA.x - centerPosition.x) - branchAngle),
+            Math.cos(Math.atan2(positionA.y - centerPosition.y, positionA.x - centerPosition.x) - branchAngle)
+          );
+          const angleB = Math.atan2(
+            Math.sin(Math.atan2(positionB.y - centerPosition.y, positionB.x - centerPosition.x) - branchAngle),
+            Math.cos(Math.atan2(positionB.y - centerPosition.y, positionB.x - centerPosition.x) - branchAngle)
+          );
+          return angleA - angleB || a.localeCompare(b);
+        });
+        const originals = new Map(ordered.map((nodeId) => [nodeId, positions.get(nodeId)!]));
+        const radii = ordered.map((nodeId) => {
+          const position = originals.get(nodeId)!;
+          return Math.hypot(position.x - centerPosition.x, position.y - centerPosition.y);
+        });
+        const originalOffsets = ordered.map((nodeId) => {
+          const position = originals.get(nodeId)!;
+          const angle = Math.atan2(position.y - centerPosition.y, position.x - centerPosition.x);
+          return Math.atan2(Math.sin(angle - branchAngle), Math.cos(angle - branchAngle));
+        });
+        const currentSpan = originalOffsets[originalOffsets.length - 1] - originalOffsets[0];
+        let groupBestCrossings = bestCrossings;
+        let groupBestPositions: Map<string, SfiPosition> | null = null;
+        for (let spanStep = 0; spanStep <= 8; spanStep += 1) {
+          const span = currentSpan + (sectorHalfAngle * 2 - currentSpan) * spanStep / 8;
+          const minimumCenter = -sectorHalfAngle + span / 2;
+          const maximumCenter = sectorHalfAngle - span / 2;
+          for (let centerStep = 0; centerStep <= 10; centerStep += 1) {
+            const groupCenter = minimumCenter
+              + (maximumCenter - minimumCenter) * centerStep / 10;
+            ordered.forEach((nodeId, index) => {
+              const offset = ordered.length === 1
+                ? groupCenter
+                : groupCenter - span / 2 + span * index / (ordered.length - 1);
+              const angle = branchAngle + offset;
+              positions.set(nodeId, {
+                x: centerPosition.x + radii[index] * Math.cos(angle),
+                y: centerPosition.y + radii[index] * Math.sin(angle),
+              });
+            });
+            const candidateCrossings = countEdgeCrossings(branchEdges, positions);
+            if (candidateCrossings < groupBestCrossings) {
+              groupBestCrossings = candidateCrossings;
+              groupBestPositions = new Map(ordered.map((nodeId) => [nodeId, positions.get(nodeId)!]));
+            }
+          }
+        }
+        if (groupBestPositions) {
+          groupBestPositions.forEach((position, nodeId) => positions.set(nodeId, position));
+          bestCrossings = groupBestCrossings;
+          improved = true;
+          if (bestCrossings === 0) break;
+        } else {
+          originals.forEach((position, nodeId) => positions.set(nodeId, position));
+        }
+      }
+      if (!improved) break;
+    }
+  });
+}
+
+function layoutHierarchyBranches(
+  overview: SfiTransactionOverview,
+  nodes: RadialLayoutNode[],
+  center: SfiPosition,
+  branchAngles: ReadonlyMap<string, number>,
+  radiusByLevel: ReadonlyMap<number, number>,
+  visualLevelByNode: ReadonlyMap<string, number>
+): Map<string, SfiPosition> {
+  const positions = new Map<string, SfiPosition>();
+  const transverseByNode = new Map<string, number>();
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const nodesByBranchAndLevel = new Map<string, RadialLayoutNode[]>();
+  nodes.forEach((node) => {
+    const key = `${node.branchId}:${node.level}`;
+    const group = nodesByBranchAndLevel.get(key) ?? [];
+    group.push(node);
+    nodesByBranchAndLevel.set(key, group);
+  });
+  const sectorAngle = Math.max(0.25, Math.min(
+    Math.PI * 0.9,
+    (2 * Math.PI / Math.max(1, branchAngles.size)) * 0.74
+  ));
+  const closerNeighbors = (nodeId: string, level: number) => overview.edgeInstances.flatMap((edge) => {
+    const neighborId = edge.source === nodeId
+      ? edge.target
+      : edge.target === nodeId
+        ? edge.source
+        : null;
+    if (!neighborId || !nodeById.has(neighborId)) return [];
+    return (visualLevelByNode.get(neighborId) ?? level) < level ? [neighborId] : [];
+  });
+
+  const orderedGroups = [...nodesByBranchAndLevel.values()].sort((a, b) =>
+    a[0].level - b[0].level
+    || a[0].branchId.localeCompare(b[0].branchId)
+  );
+  orderedGroups.forEach((group) => {
+    const branchAngle = branchAngles.get(group[0].branchId) ?? group[0].preferredAngle;
+    const radius = radiusByLevel.get(group[0].level) ?? HIERARCHY_LEVEL_GAP * group[0].level;
+    const desiredTransverse = (nodeId: string) => {
+      const parents = closerNeighbors(nodeId, group[0].level)
+        .flatMap((parentId) => {
+          const transverse = transverseByNode.get(parentId);
+          return transverse === undefined ? [] : [transverse];
+        });
+      return parents.length === 0
+        ? 0
+        : parents.reduce((sum, value) => sum + value, 0) / parents.length;
+    };
+    group.sort((a, b) =>
+      desiredTransverse(a.id) - desiredTransverse(b.id)
+      || a.preferredAngle - b.preferredAngle
+      || a.id.localeCompare(b.id)
+    );
+    const transverseDepth = (node: RadialLayoutNode) => (
+      Math.abs(Math.sin(branchAngle)) * node.width
+      + Math.abs(Math.cos(branchAngle)) * node.height
+    );
+    const desired = group.map((node) => desiredTransverse(node.id));
+    const assigned: number[] = [];
+    group.forEach((node, index) => {
+      if (index === 0) {
+        assigned.push(desired[index]);
+        return;
+      }
+      const minimumSeparation = (
+        transverseDepth(group[index - 1]) + transverseDepth(node)
+      ) / 2 + HIERARCHY_SIBLING_GAP;
+      assigned.push(Math.max(desired[index], assigned[index - 1] + minimumSeparation));
+    });
+    const maximumTransverse = radius * Math.sin(sectorAngle * HIERARCHY_SECTOR_USAGE / 2);
+    const requiresRoutingRoom = group.some((node) => {
+      const parents = closerNeighbors(node.id, group[0].level);
+      return parents.length > 1 || parents.some((parentId) =>
+        (visualLevelByNode.get(parentId) ?? group[0].level) < group[0].level - 1
+      );
+    });
+    if (group.length > 1 && requiresRoutingRoom) {
+      const firstHalfDepth = transverseDepth(group[0]) / 2;
+      const lastHalfDepth = transverseDepth(group[group.length - 1]) / 2;
+      const availableCenterSpan = Math.max(
+        0,
+        maximumTransverse * 2 - firstHalfDepth - lastHalfDepth
+      );
+      const currentSpan = assigned[assigned.length - 1] - assigned[0];
+      const targetSpan = Math.min(
+        availableCenterSpan,
+        Math.max(currentSpan, availableCenterSpan * HIERARCHY_LEVEL_SPREAD)
+      );
+      if (currentSpan > 0 && targetSpan > currentSpan) {
+        const midpoint = (assigned[0] + assigned[assigned.length - 1]) / 2;
+        const scale = targetSpan / currentSpan;
+        assigned.forEach((value, index) => {
+          assigned[index] = midpoint + (value - midpoint) * scale;
+        });
+      }
+    }
+    const averageDesired = desired.reduce((sum, value) => sum + value, 0) / desired.length;
+    const averageAssigned = assigned.reduce((sum, value) => sum + value, 0) / assigned.length;
+    let shift = averageDesired - averageAssigned;
+    const firstHalfDepth = transverseDepth(group[0]) / 2;
+    const lastHalfDepth = transverseDepth(group[group.length - 1]) / 2;
+    const minimumShift = -maximumTransverse + firstHalfDepth - assigned[0];
+    const maximumShift = maximumTransverse - lastHalfDepth - assigned[assigned.length - 1];
+    if (minimumShift <= maximumShift) {
+      shift = Math.max(minimumShift, Math.min(maximumShift, shift));
+    }
+    group.forEach((node, index) => {
+      const transverse = assigned[index] + shift;
+      transverseByNode.set(node.id, transverse);
+      const angle = branchAngle + Math.asin(Math.max(-0.98, Math.min(0.98, transverse / radius)));
+      positions.set(node.id, {
+        x: center.x + radius * Math.cos(angle),
+        y: center.y + radius * Math.sin(angle),
+      });
+    });
+  });
+  return positions;
 }
 
 function moveNonInternalNodesOutsideBoundary(
   overview: SfiTransactionOverview,
   positions: Map<string, SfiPosition>,
-  center: SfiPosition
+  center: SfiPosition,
+  nodeSizes?: ReadonlyMap<string, VisualSize>
 ) {
   let deepestInternalRadius = 0;
   overview.insideBoundaryNodeIds.forEach((nodeId) => {
@@ -971,17 +1267,25 @@ function moveNonInternalNodesOutsideBoundary(
     deepestInternalRadius = Math.max(
       deepestInternalRadius,
       Math.hypot(position.x - center.x, position.y - center.y)
+        + Math.max(
+          nodeSizes?.get(nodeId)?.width ?? 0,
+          nodeSizes?.get(nodeId)?.height ?? 0
+        ) / 2
     );
   });
   const boundaryRadius = Math.max(
     HIERARCHY_LEVEL_GAP,
     deepestInternalRadius + SFI_INTERNAL_BOUNDARY_PADDING
   );
-  const outsideFloor = boundaryRadius + SFI_EXTERNAL_BOUNDARY_GAP;
   const outsideNodeIds = [...overview.visibleNodeIds]
     .filter((nodeId) =>
       nodeId !== overview.sfiInstanceId && !overview.insideBoundaryNodeIds.has(nodeId)
     );
+  const maximumOutsideNodeRadius = Math.max(0, ...outsideNodeIds.map((nodeId) => Math.max(
+    nodeSizes?.get(nodeId)?.width ?? 0,
+    nodeSizes?.get(nodeId)?.height ?? 0
+  ) / 2));
+  const outsideFloor = boundaryRadius + SFI_EXTERNAL_BOUNDARY_GAP + maximumOutsideNodeRadius;
   const currentRadii = outsideNodeIds.flatMap((nodeId) => {
     const position = positions.get(nodeId);
     return position
@@ -1054,13 +1358,27 @@ function alignTerminalExternalNodes(
     nonterminalExternalRadius + (nonterminalExternalRadius > 0
       ? terminalDepth + otherDepth + HIERARCHY_LABEL_PADDING : 0)
   );
-  const branchAngles = new Map<string, number>();
   const terminalNodes: RadialLayoutNode[] = terminals.map((nodeId) => {
     const branchId = overview.branchRootByNode.get(nodeId) ?? nodeId;
     const position = positions.get(nodeId) ?? center;
-    const angle = Math.atan2(position.y - center.y, position.x - center.x);
-    if (!branchAngles.has(branchId)) branchAngles.set(branchId, rootAngles.get(branchId) ?? angle);
+    const parentPosition = positions.get(overview.parentByNode.get(nodeId) ?? '') ?? position;
+    const angle = Math.atan2(parentPosition.y - center.y, parentPosition.x - center.x);
     return { id: nodeId, branchId, level: 1, preferredAngle: angle, ...sizeFor(nodeId) };
+  });
+  const branchAngles = new Map<string, number>();
+  const terminalNodesByBranch = new Map<string, RadialLayoutNode[]>();
+  terminalNodes.forEach((node) => {
+    const group = terminalNodesByBranch.get(node.branchId) ?? [];
+    group.push(node);
+    terminalNodesByBranch.set(node.branchId, group);
+  });
+  terminalNodesByBranch.forEach((nodes, branchId) => {
+    const base = rootAngles.get(branchId) ?? nodes[0].preferredAngle;
+    const averageOffset = nodes.reduce((sum, node) => sum + Math.atan2(
+      Math.sin(node.preferredAngle - base),
+      Math.cos(node.preferredAngle - base)
+    ), 0) / nodes.length;
+    branchAngles.set(branchId, base + averageOffset);
   });
 
   if (compactHierarchy) {
@@ -1186,9 +1504,10 @@ export function calculateSfiPositions(
           y: center.y + radius * Math.sin(angle),
         });
       });
-      moveNonInternalNodesOutsideBoundary(overview, positions, center);
-      minimizeHierarchyCrossings(overview, positions, visualLevelByNode);
+      moveNonInternalNodesOutsideBoundary(overview, positions, center, options.nodeSizes);
+      minimizeHierarchyCrossings(overview, positions, visualLevelByNode, false);
       alignTerminalExternalNodes(overview, positions, center, rootAngles, options.nodeSizes, true);
+      minimizeHierarchyCrossings(overview, positions, visualLevelByNode, false);
       return positions;
     }
 
@@ -1214,11 +1533,32 @@ export function calculateSfiPositions(
       branchAngles,
       minimumFirstRadius: HIERARCHY_LEVEL_GAP,
       collisionPadding: HIERARCHY_LABEL_PADDING,
-      siblingGap: 16,
-      levelGap: 52,
+      siblingGap: HIERARCHY_SIBLING_GAP,
+      levelGap: 72,
     });
-    radialLayout.positions.forEach((position, nodeId) => positions.set(nodeId, position));
-    moveNonInternalNodesOutsideBoundary(overview, positions, center);
+    const branchRadiusByLevel = new Map(radialLayout.radiusByLevel);
+    for (let attempt = 0; attempt < 16; attempt += 1) {
+      positions.clear();
+      positions.set(overview.sfiInstanceId, center);
+      layoutHierarchyBranches(
+        overview,
+        layoutNodes,
+        center,
+        branchAngles,
+        branchRadiusByLevel,
+        visualLevelByNode
+      ).forEach((position, nodeId) => positions.set(nodeId, position));
+      if (!hasVisualCollisions(layoutNodes, positions, HIERARCHY_LABEL_PADDING)) break;
+      branchRadiusByLevel.forEach((radius, level) => {
+        branchRadiusByLevel.set(level, radius + 20 + level * 4);
+      });
+    }
+    if (hasVisualCollisions(layoutNodes, positions, HIERARCHY_LABEL_PADDING)) {
+      positions.clear();
+      positions.set(overview.sfiInstanceId, center);
+      radialLayout.positions.forEach((position, nodeId) => positions.set(nodeId, position));
+    }
+    moveNonInternalNodesOutsideBoundary(overview, positions, center, options.nodeSizes);
     const beforeCrossingOptimization = new Map(positions);
     minimizeHierarchyCrossings(overview, positions, visualLevelByNode);
     if (hasVisualCollisions(layoutNodes, positions, HIERARCHY_LABEL_PADDING)) {
@@ -1226,6 +1566,14 @@ export function calculateSfiPositions(
       beforeCrossingOptimization.forEach((position, nodeId) => positions.set(nodeId, position));
     }
     alignTerminalExternalNodes(overview, positions, center, rootAngles, options.nodeSizes);
+    const beforeTerminalCrossingOptimization = new Map(positions);
+    minimizeHierarchyCrossings(overview, positions, visualLevelByNode, false);
+    if (hasVisualCollisions(layoutNodes, positions, HIERARCHY_LABEL_PADDING)) {
+      positions.clear();
+      beforeTerminalCrossingOptimization.forEach(
+        (position, nodeId) => positions.set(nodeId, position)
+      );
+    }
     return positions;
   }
 
@@ -1240,6 +1588,6 @@ export function calculateSfiPositions(
       y: parentPosition.y + distance * Math.sin(angle),
     });
   });
-  moveNonInternalNodesOutsideBoundary(overview, positions, center);
+  moveNonInternalNodesOutsideBoundary(overview, positions, center, options.nodeSizes);
   return positions;
 }

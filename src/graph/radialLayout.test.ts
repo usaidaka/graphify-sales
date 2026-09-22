@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   hasVisualCollisions,
   layoutRadialLevels,
+  uniformCircularNodeDiameter,
   type RadialLayoutNode,
 } from './radialLayout';
 
@@ -18,6 +19,15 @@ function node(
 }
 
 describe('layoutRadialLevels', () => {
+  it('uses one readable circle diameter based on the longest visible company name', () => {
+    expect(uniformCircularNodeDiameter([
+      'CV GBA',
+      'CV SOLUSI ARYA PRIMA',
+      'PT DD(BU)PDTKP',
+    ])).toBe(108);
+    expect(uniformCircularNodeDiameter(['PT LJ', 'CV GBA'])).toBe(72);
+  });
+
   it('keeps an incoming aggregate, selected company, and outgoing aggregate on separate levels', () => {
     const nodes = [
       node('3-incoming', 1, 52, 52),
@@ -70,6 +80,53 @@ describe('layoutRadialLevels', () => {
 
     expect(result.radiusByLevel.get(3)!).toBeGreaterThan(result.radiusByLevel.get(1)!);
     expect(hasVisualCollisions(nodes, result.positions)).toBe(false);
+  });
+
+  it('keeps sparse sibling gaps proportional instead of filling the sector', () => {
+    const nodes = Array.from({ length: 3 }, (_, index) => node(
+      `sibling-${index}`,
+      1,
+      20,
+      20,
+      index * 0.01,
+    ));
+    const result = layoutRadialLevels({
+      center,
+      nodes,
+      branchAngles: new Map([['branch-a', 0]]),
+      sectorAngle: Math.PI / 2,
+      collisionPadding: 0,
+      siblingGap: 8,
+    });
+    const angles = nodes.map(({ id }) => {
+      const position = result.positions.get(id)!;
+      return Math.atan2(position.y, position.x);
+    });
+
+    expect(Math.max(...angles) - Math.min(...angles)).toBeGreaterThan(0.3);
+    expect(Math.max(...angles) - Math.min(...angles)).toBeLessThan(0.75);
+    expect(hasVisualCollisions(nodes, result.positions, 0)).toBe(false);
+  });
+
+  it('keeps similar physical sibling spacing when the hierarchy radius grows', () => {
+    const nodes = [node('left', 1, 72, 72), node('right', 1, 72, 72)];
+    const layout = (minimumFirstRadius: number) => layoutRadialLevels({
+      center,
+      nodes,
+      branchAngles: new Map([['branch-a', 0]]),
+      sectorAngle: Math.PI / 2,
+      minimumFirstRadius,
+      collisionPadding: 12,
+      siblingGap: 16,
+    });
+    const siblingDistance = (minimumFirstRadius: number) => {
+      const positions = layout(minimumFirstRadius).positions;
+      const left = positions.get('left')!;
+      const right = positions.get('right')!;
+      return Math.hypot(right.x - left.x, right.y - left.y);
+    };
+
+    expect(siblingDistance(500)).toBeCloseTo(siblingDistance(150), -1);
   });
 
   it('tightens an overview while preserving level order and label clearance', () => {

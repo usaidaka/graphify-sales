@@ -43,6 +43,31 @@ export const RADIAL_LAYOUT_CONFIG = {
   badgeOffset: 14,
 } as const;
 
+const OVERVIEW_NODE_MIN_DIAMETER = 72;
+const OVERVIEW_NODE_MAX_DIAMETER = 108;
+const OVERVIEW_LABEL_HORIZONTAL_PADDING = 24;
+const OVERVIEW_LABEL_CHARACTER_WIDTH = 8;
+
+/** Choose one readable circle diameter from the longest visible company name. */
+export function uniformCircularNodeDiameter(labels: Iterable<string>): number {
+  let requiredDiameter = OVERVIEW_NODE_MIN_DIAMETER;
+  for (const rawLabel of labels) {
+    const label = rawLabel.trim().replace(/\s+/g, ' ');
+    if (!label) continue;
+    const longestWordLength = Math.max(...label.split(' ').map((word) => word.length));
+    const balancedLineLength = Math.ceil(label.length / 2);
+    const lineLength = Math.max(longestWordLength, balancedLineLength);
+    requiredDiameter = Math.max(
+      requiredDiameter,
+      lineLength * OVERVIEW_LABEL_CHARACTER_WIDTH + OVERVIEW_LABEL_HORIZONTAL_PADDING
+    );
+  }
+  return Math.min(
+    OVERVIEW_NODE_MAX_DIAMETER,
+    Math.ceil(requiredDiameter / 4) * 4
+  );
+}
+
 const EPSILON = 0.01;
 
 export function visualSize(
@@ -130,17 +155,25 @@ function buildPositions(
       ?? nodes.reduce((sum, node) => sum + node.preferredAngle, 0) / nodes.length;
     const maximumArc = radius * sectorAngle;
     const scale = totalArc > maximumArc ? maximumArc / totalArc : 1;
-    let cursor = -totalArc * scale / 2;
+    const scaledFootprints = footprints.map((footprint) => footprint * scale);
+    const occupiedByNodes = scaledFootprints.reduce((sum, footprint) => sum + footprint, 0);
+    // Keep the physical gap proportional to node size. Filling a mostly empty
+    // sector makes the same sibling group drift farther apart on larger rings.
+    const targetArc = totalArc * scale;
+    const distributedGap = nodes.length > 1
+      ? Math.max(0, (targetArc - occupiedByNodes) / (nodes.length - 1))
+      : 0;
+    let cursor = -targetArc / 2;
 
     nodes.forEach((node, index) => {
-      const footprint = footprints[index] * scale;
+      const footprint = scaledFootprints[index];
       cursor += footprint / 2;
       const angle = branchAngle + cursor / Math.max(1, radius);
       positions.set(node.id, {
         x: input.center.x + radius * Math.cos(angle),
         y: input.center.y + radius * Math.sin(angle),
       });
-      cursor += footprint / 2 + (input.siblingGap ?? RADIAL_LAYOUT_CONFIG.siblingGap) * scale;
+      cursor += footprint / 2 + distributedGap;
     });
   });
   return positions;
@@ -175,10 +208,10 @@ export function layoutRadialLevels(input: RadialLayoutInput): RadialLayoutResult
   const levelGap = input.levelGap ?? RADIAL_LAYOUT_CONFIG.levelGap;
   const levels = [...new Set(input.nodes.map(({ level }) => level))].sort((a, b) => a - b);
   const branchCount = Math.max(1, input.branchAngles.size);
-  const sectorAngle = Math.max(
-    0.25,
+  const sectorAngle = Math.max(0.25, Math.min(
+    Math.PI * 0.9,
     input.sectorAngle ?? (2 * Math.PI / branchCount) * 0.74
-  );
+  ));
   const radiusByLevel = new Map<number, number>();
   let previousLevel = 0;
   let previousRadius = 0;

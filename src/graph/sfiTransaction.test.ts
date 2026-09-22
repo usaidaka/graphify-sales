@@ -196,6 +196,39 @@ describe('buildSfiTransactionOverview', () => {
     expect(instancesFor(result, 'lj', branch)[0].level).toBe(2)
   })
 
+  it('keeps a real parent edge when inferred hierarchy creates a skipped level', () => {
+    const data: NormalizedGraph = {
+      nodes: [
+        nodes[0],
+        nodes[1],
+        { id: 'lj', companyName: 'PT LJ', nodeType: 'internal' },
+        { id: 'kut', companyName: 'CV KUT', nodeType: 'internal' },
+        { id: 'sai', companyName: 'PT SAI', nodeType: 'internal' },
+        { id: 'bca', companyName: 'CV BCA', nodeType: 'special-external' },
+      ],
+      edges: [
+        edge('sfi-ldn', 'sfi', 'ldn', 100),
+        edge('ldn-lj', 'ldn', 'lj', 90),
+        edge('lj-kut', 'lj', 'kut', 80),
+        edge('lj-sai', 'lj', 'sai', 70),
+        edge('lj-bca', 'lj', 'bca', 60),
+        edge('kut-bca', 'kut', 'bca', 50),
+      ],
+    }
+    const result = createSfiTransactionOverview(data, 'sales')
+    const lj = instancesFor(result, 'lj', 'LDN')[0]
+    const sai = instancesFor(result, 'sai', 'LDN')[0]
+
+    expect(result.levelByNode.get(sai.id)).toBe((result.levelByNode.get(lj.id) ?? 0) + 2)
+    expect(result.parentByNode.get(sai.id)).toBe(lj.id)
+    expect(instancesFor(result, 'sai')).toEqual([sai])
+    expect(result.edgeInstances.some((instance) =>
+      instance.canonicalEdgeId === 'lj-sai'
+      && instance.source === lj.id
+      && instance.target === sai.id
+    )).toBe(true)
+  })
+
   it('applies effective downstream depth in the purchases view', () => {
     const data: NormalizedGraph = {
       nodes: [
@@ -381,6 +414,84 @@ describe('buildSfiTransactionOverview', () => {
 })
 
 describe('calculateSfiPositions', () => {
+  it('fans out a converging branch until its transaction lines no longer cross', () => {
+    const internal = (id: string): NodeData => ({
+      id,
+      companyName: id.toUpperCase(),
+      nodeType: 'internal',
+    })
+    const data: NormalizedGraph = {
+      nodes: [
+        nodes[0],
+        ...['root', 'middle', 'left-parent', 'right-parent', 'kut', 'sdja', 'sai']
+          .map(internal),
+        { id: 'bca', companyName: 'CV BCA', nodeType: 'special-external' },
+        { id: 'axi', companyName: 'PT AXI', nodeType: 'external' },
+      ],
+      edges: [
+        edge('sfi-root', 'sfi', 'root', 1_000),
+        edge('root-middle', 'root', 'middle', 900),
+        edge('middle-left', 'middle', 'left-parent', 800),
+        edge('middle-right', 'middle', 'right-parent', 700),
+        edge('left-bca', 'left-parent', 'bca', 600),
+        edge('right-kut', 'right-parent', 'kut', 550),
+        edge('right-sdja', 'right-parent', 'sdja', 500),
+        edge('right-bca', 'right-parent', 'bca', 450),
+        edge('right-sai', 'right-parent', 'sai', 400),
+        edge('kut-bca', 'kut', 'bca', 350),
+        edge('sdja-bca', 'sdja', 'bca', 300),
+        edge('sai-axi', 'sai', 'axi', 250),
+      ],
+    }
+    const result = createSfiTransactionOverview(data, 'sales')
+    const bca = instancesFor(result, 'bca')[0]
+    const sai = instancesFor(result, 'sai')[0]
+    const axi = instancesFor(result, 'axi')[0]
+    const sizes = new Map(result.nodeInstances.map(({ id }) => [
+      id,
+      { width: 72, height: 72 },
+    ]))
+    const positions = calculateSfiPositions(result, 'hierarchy', 1920, 1080, {
+      nodeSizes: sizes,
+      terminalInsideNodeIds: new Set([bca.id]),
+    })
+    let crossingCount = 0
+    for (let firstIndex = 0; firstIndex < result.edgeInstances.length; firstIndex += 1) {
+      const first = result.edgeInstances[firstIndex]
+      for (let secondIndex = firstIndex + 1; secondIndex < result.edgeInstances.length; secondIndex += 1) {
+        const second = result.edgeInstances[secondIndex]
+        if ([first.source, first.target].some((id) =>
+          id === second.source || id === second.target)) continue
+        if (segmentsCross(
+          positions.get(first.source)!,
+          positions.get(first.target)!,
+          positions.get(second.source)!,
+          positions.get(second.target)!,
+        )) crossingCount += 1
+      }
+    }
+
+    expect(crossingCount).toBe(0)
+    const center = positions.get(result.sfiInstanceId!)!
+    const angleFromCenter = (nodeId: string) => {
+      const position = positions.get(nodeId)!
+      return Math.atan2(position.y - center.y, position.x - center.x)
+    }
+    expect(Math.abs(Math.atan2(
+      Math.sin(angleFromCenter(axi.id) - angleFromCenter(sai.id)),
+      Math.cos(angleFromCenter(axi.id) - angleFromCenter(sai.id)),
+    ))).toBeLessThan(0.2)
+    expect(hasVisualCollisions(result.nodeInstances
+      .filter(({ id }) => id !== result.sfiInstanceId)
+      .map((instance) => ({
+        ...instance,
+        branchId: instance.branch,
+        preferredAngle: 0,
+        width: 72,
+        height: 72,
+      })), positions, 12)).toBe(false)
+  })
+
   it('places a two-stage branch directly from its hub to BCA as the endpoint', () => {
     const result = createSfiTransactionOverview({
       nodes: [

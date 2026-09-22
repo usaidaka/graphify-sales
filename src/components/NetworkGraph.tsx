@@ -18,7 +18,7 @@ import { partitionFocusedRelationships } from '../graph/focusProjection';
 import {
   RADIAL_LAYOUT_CONFIG,
   radiusAt,
-  visualSize,
+  uniformCircularNodeDiameter,
   type VisualSize,
 } from '../graph/radialLayout';
 import {
@@ -28,22 +28,63 @@ import {
 } from '../graph/focusLayout';
 import './NetworkGraph.css';
 
-const SFI_OVERVIEW_NODE_DIAMETER = 38;
-const SFI_CENTER_NODE_DIAMETER = 56;
+const VIEWPORT_ANIMATION_DURATION = 420;
+
+function setViewport(
+  cy: cytoscape.Core,
+  zoom: number,
+  pan: cytoscape.Position,
+  animated = false
+) {
+  cy.stop();
+  if (!animated) {
+    cy.viewport({ zoom, pan });
+    return;
+  }
+  cy.animate({
+    zoom,
+    pan,
+  }, {
+    duration: VIEWPORT_ANIMATION_DURATION,
+    easing: 'ease-in-out-cubic',
+    queue: false,
+  });
+}
+
+function fitCollection(
+  cy: cytoscape.Core,
+  elements: cytoscape.CollectionReturnValue,
+  padding: number,
+  maximumZoom = cy.maxZoom(),
+  animated = false
+) {
+  if (elements.length === 0) return;
+  const bounds = elements.boundingBox();
+  const zoom = Math.min(maximumZoom, Math.max(cy.minZoom(), Math.min(
+    Math.max(1, cy.width() - 2 * padding) / Math.max(1, bounds.w),
+    Math.max(1, cy.height() - 2 * padding) / Math.max(1, bounds.h)
+  )));
+  setViewport(cy, zoom, {
+    x: cy.width() / 2 - (bounds.x1 + bounds.x2) / 2 * zoom,
+    y: cy.height() / 2 - (bounds.y1 + bounds.y2) / 2 * zoom,
+  }, animated);
+}
 
 function collectLayoutOptions(
   cy: cytoscape.Core,
+  overview: SfiTransactionOverview,
   compactHierarchy = false
 ): SfiLayoutOptions {
+  const visibleNodes = cy.nodes().filter((node) => overview.visibleNodeIds.has(node.id()));
+  const diameter = uniformCircularNodeDiameter(
+    visibleNodes.map((node) => String(node.data('companyName') ?? ''))
+  );
   const nodeSizes = new Map<string, VisualSize>();
   const terminalInsideNodeIds = new Set<string>();
-  cy.nodes().forEach((node) => {
-    const isCenter = node.hasClass('sfi-center');
-    const diameter = isCenter ? SFI_CENTER_NODE_DIAMETER : SFI_OVERVIEW_NODE_DIAMETER;
-    nodeSizes.set(
-      node.id(),
-      visualSize(diameter, diameter, String(node.data('companyName') ?? ''))
-    );
+  visibleNodes.forEach((node) => {
+    node.data('size', diameter);
+    node.data('labelMaxWidth', diameter - 18);
+    nodeSizes.set(node.id(), { width: diameter, height: diameter });
     if (node.data('nodeType') === 'special-external') {
       terminalInsideNodeIds.add(node.id());
     }
@@ -52,6 +93,7 @@ function collectLayoutOptions(
 }
 
 function internalBoundaryRadius(
+  cy: cytoscape.Core,
   overview: SfiTransactionOverview,
   positions: ReadonlyMap<string, SfiPosition>
 ): number {
@@ -62,7 +104,10 @@ function internalBoundaryRadius(
   let deepestRadius = 0;
   overview.insideBoundaryNodeIds.forEach((nodeId) => {
     const position = positions.get(nodeId);
-    if (position) deepestRadius = Math.max(deepestRadius, radiusAt(position, center));
+    if (!position) return;
+    const node = cy.getElementById(nodeId);
+    const nodeRadius = node.length > 0 ? Number(node.data('size') ?? 0) / 2 : 0;
+    deepestRadius = Math.max(deepestRadius, radiusAt(position, center) + nodeRadius);
   });
   return Math.max(
     SFI_INTERNAL_BOUNDARY_MIN_RADIUS,
@@ -82,7 +127,7 @@ function applySfiLayout(
     mode,
     cy.width(),
     cy.height(),
-    collectLayoutOptions(cy, compactHierarchy)
+    collectLayoutOptions(cy, overview, compactHierarchy)
   );
 
   cy.batch(() => {
@@ -134,14 +179,15 @@ function applySfiLayout(
 function fitOverview(
   cy: cytoscape.Core,
   overview: SfiTransactionOverview,
-  elements: cytoscape.CollectionReturnValue
+  elements: cytoscape.CollectionReturnValue,
+  animated = false
 ) {
   if (elements.length === 0) return;
   const centerNode = overview.sfiInstanceId
     ? cy.getElementById(overview.sfiInstanceId)
     : cy.collection();
   if (centerNode.length === 0) {
-    cy.fit(elements, 58);
+    fitCollection(cy, elements, 58, cy.maxZoom(), animated);
     return;
   }
 
@@ -153,6 +199,7 @@ function fitOverview(
     guideRadius = Math.max(
       guideRadius,
       Math.hypot(node.position().x - center.x, node.position().y - center.y)
+        + Number(node.data('size') ?? 0) / 2
         + SFI_INTERNAL_BOUNDARY_PADDING
     );
   });
@@ -169,13 +216,10 @@ function fitOverview(
     (cy.width() - 2 * padding) / (2 * radius),
     (cy.height() - 2 * padding) / (2 * radius)
   )));
-  cy.viewport({
-    zoom,
-    pan: {
-      x: cy.width() / 2 - center.x * zoom,
-      y: cy.height() / 2 - center.y * zoom,
-    },
-  });
+  setViewport(cy, zoom, {
+    x: cy.width() / 2 - center.x * zoom,
+    y: cy.height() / 2 - center.y * zoom,
+  }, animated);
 }
 
 interface OverviewSummary {
@@ -196,6 +240,8 @@ const EMPTY_SUMMARY: OverviewSummary = {
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const FOCUS_TRANSITION_DURATION = 560;
+const SECTOR_ZOOM_PADDING = 76;
+const SECTOR_ZOOM_MAX = 1.4;
 
 interface FocusSectorExpansion {
   branchRootId: string;
@@ -255,6 +301,7 @@ function renderSectorGuide(
     deepestInternalRadius = Math.max(
       deepestInternalRadius,
       Math.hypot(position.x - center.x, position.y - center.y)
+        + node.renderedOuterWidth() / 2
     );
   });
   const measuredOuterRadius = Math.max(
@@ -282,12 +329,18 @@ function renderSectorGuide(
   overlay.dataset.baseRadius = String(baseOuterRadius);
   overlay.dataset.activeRadius = String(activeOuterRadius);
   overlay.dataset.expandedSlotId = expandedSlot?.hubInstanceId ?? '';
-  if (!expandedSlot || activeOuterRadius <= baseOuterRadius + 0.5) {
+  const hasSingleSector = activeSlots.length === 1;
+  if (hasSingleSector || !expandedSlot || activeOuterRadius <= baseOuterRadius + 0.5) {
     const outerCircle = document.createElementNS(SVG_NAMESPACE, 'circle');
-    outerCircle.setAttribute('class', 'sfi-sector-outer');
+    outerCircle.setAttribute(
+      'class',
+      expandedSlot && hasSingleSector
+        ? 'sfi-sector-outer sfi-sector-expanded'
+        : 'sfi-sector-outer'
+    );
     outerCircle.setAttribute('cx', String(center.x));
     outerCircle.setAttribute('cy', String(center.y));
-    outerCircle.setAttribute('r', String(baseOuterRadius));
+    outerCircle.setAttribute('r', String(hasSingleSector ? activeOuterRadius : baseOuterRadius));
     overlay.append(outerCircle);
   } else {
     const startAngle = expandedSlot.angle - sectorSize / 2;
@@ -317,22 +370,33 @@ function renderSectorGuide(
   innerCircle.setAttribute('r', String(innerRadius));
   overlay.append(innerCircle);
 
-  activeSlots.forEach((_slot, index) => {
-    const boundaryAngle = -Math.PI + sectorSize * index;
-    const divider = document.createElementNS(SVG_NAMESPACE, 'line');
-    divider.setAttribute('class', 'sfi-sector-divider');
-    divider.setAttribute('x1', String(center.x + innerRadius * Math.cos(boundaryAngle)));
-    divider.setAttribute('y1', String(center.y + innerRadius * Math.sin(boundaryAngle)));
-    divider.setAttribute('x2', String(center.x + baseOuterRadius * Math.cos(boundaryAngle)));
-    divider.setAttribute('y2', String(center.y + baseOuterRadius * Math.sin(boundaryAngle)));
-    overlay.append(divider);
-  });
+  if (!hasSingleSector) {
+    activeSlots.forEach((_slot, index) => {
+      const boundaryAngle = -Math.PI + sectorSize * index;
+      const divider = document.createElementNS(SVG_NAMESPACE, 'line');
+      divider.setAttribute('class', 'sfi-sector-divider');
+      divider.setAttribute('x1', String(center.x + innerRadius * Math.cos(boundaryAngle)));
+      divider.setAttribute('y1', String(center.y + innerRadius * Math.sin(boundaryAngle)));
+      divider.setAttribute('x2', String(center.x + baseOuterRadius * Math.cos(boundaryAngle)));
+      divider.setAttribute('y2', String(center.y + baseOuterRadius * Math.sin(boundaryAngle)));
+      overlay.append(divider);
+    });
+  }
 
   const appendSectorOutline = (
     slot: typeof activeSlots[number],
     outerRadius: number,
     className: string
   ) => {
+    if (hasSingleSector) {
+      const circle = document.createElementNS(SVG_NAMESPACE, 'circle');
+      circle.setAttribute('class', className);
+      circle.setAttribute('cx', String(center.x));
+      circle.setAttribute('cy', String(center.y));
+      circle.setAttribute('r', String(outerRadius));
+      overlay.append(circle);
+      return;
+    }
     const startAngle = slot.angle - sectorSize / 2;
     const endAngle = slot.angle + sectorSize / 2;
     const arc = document.createElementNS(SVG_NAMESPACE, 'path');
@@ -362,6 +426,49 @@ function renderSectorGuide(
   }
 }
 
+function sectorAtRenderedPoint(
+  overview: SfiTransactionOverview,
+  overlay: SVGSVGElement,
+  point: { x: number; y: number }
+): string | null {
+  const slots = overview.branchSlots.filter(
+    (slot): slot is typeof slot & { hubInstanceId: string } => Boolean(slot.hubInstanceId)
+  );
+  if (slots.length === 0) return null;
+  const dx = point.x - Number(overlay.dataset.centerX);
+  const dy = point.y - Number(overlay.dataset.centerY);
+  const distance = Math.hypot(dx, dy);
+  const angle = Math.atan2(dy, dx);
+  const sectorSize = (2 * Math.PI) / slots.length;
+  const slot = slots.find((candidate) => {
+    const angleDifference = Math.atan2(
+      Math.sin(angle - candidate.angle),
+      Math.cos(angle - candidate.angle)
+    );
+    const outerRadius = candidate.hubInstanceId === overlay.dataset.expandedSlotId
+      ? Number(overlay.dataset.activeRadius)
+      : Number(overlay.dataset.baseRadius);
+    return Math.abs(angleDifference) <= sectorSize / 2
+      && distance >= Number(overlay.dataset.innerRadius)
+      && distance <= outerRadius;
+  });
+  return slot?.hubInstanceId ?? null;
+}
+
+function zoomToSector(
+  cy: cytoscape.Core,
+  overview: SfiTransactionOverview,
+  branchRootId: string
+) {
+  const nodes = cy.nodes(':visible').filter((node) =>
+    node.id() === overview.sfiInstanceId
+    || node.data('focusBranchRootId') === branchRootId
+    || (overview.branchRootByNode.get(node.id()) ?? node.id()) === branchRootId
+  );
+  if (nodes.length <= 1) return;
+  fitCollection(cy, nodes, SECTOR_ZOOM_PADDING, SECTOR_ZOOM_MAX, true);
+}
+
 export const NetworkGraph: React.FC = () => {
   const graphContainerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -375,10 +482,13 @@ export const NetworkGraph: React.FC = () => {
   const focusAnimationTimeoutRef = useRef(0);
   const focusTransitionRef = useRef(0);
   const focusExpansionRef = useRef<FocusSectorExpansion | null>(null);
+  const sectorZoomRef = useRef<string | null>(null);
+  const resetViewportRef = useRef<() => void>(() => undefined);
   const { graph, relationshipGraph, loading, error } = useGraphData();
   const { dispatch, state } = useUI();
   const [layoutRunning, setLayoutRunning] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [zoomedSectorId, setZoomedSectorId] = useState<string | null>(null);
   const [overviewSummary, setOverviewSummary] = useState<OverviewSummary>(EMPTY_SUMMARY);
   compactHierarchyRef.current = state.yearFrom === 'all' && state.yearTo === 'all';
 
@@ -409,6 +519,15 @@ export const NetworkGraph: React.FC = () => {
           return;
         }
         focusedOccurrenceRef.current = event.target.id();
+        const currentOverview = overviewRef.current;
+        if (currentOverview && event.target.id() !== currentOverview.sfiInstanceId) {
+          const branchRootId = event.target.data('focusBranchRootId')
+            ?? currentOverview.branchRootByNode.get(event.target.id())
+            ?? event.target.id();
+          sectorZoomRef.current = branchRootId;
+          setZoomedSectorId(branchRootId);
+          zoomToSector(cy, currentOverview, branchRootId);
+        }
         dispatch({
           type: 'SET_FOCUS_NODE',
           payload: event.target.data('canonicalCompanyId') ?? event.target.id(),
@@ -433,9 +552,19 @@ export const NetworkGraph: React.FC = () => {
       });
       cy.on('tap', (event) => {
         if (event.target !== cy) return;
+        const currentOverview = overviewRef.current;
+        const overlay = sectorOverlayRef.current;
+        const branchRootId = currentOverview && overlay
+          ? sectorAtRenderedPoint(currentOverview, overlay, event.renderedPosition)
+          : null;
         focusedOccurrenceRef.current = null;
         dispatch({ type: 'CLEAR_FOCUS' });
         dispatch({ type: 'CLEAR_EDGE_SELECTION' });
+        if (currentOverview && branchRootId) {
+          sectorZoomRef.current = branchRootId;
+          setZoomedSectorId(branchRootId);
+          zoomToSector(cy, currentOverview, branchRootId);
+        }
       });
       cy.on('pan zoom resize', () => {
         const currentOverview = overviewRef.current;
@@ -454,6 +583,8 @@ export const NetworkGraph: React.FC = () => {
 
     overviewRef.current = overview;
     layoutModeRef.current = state.sfiLayoutMode;
+    sectorZoomRef.current = null;
+    setZoomedSectorId(null);
     setOverviewSummary({
       companies: Math.max(
         0,
@@ -505,29 +636,10 @@ export const NetworkGraph: React.FC = () => {
       const overlay = sectorOverlayRef.current;
       if (!overview || !overlay) return;
       const rect = canvas.getBoundingClientRect();
-      const dx = event.clientX - rect.left - Number(overlay.dataset.centerX);
-      const dy = event.clientY - rect.top - Number(overlay.dataset.centerY);
-      const distance = Math.hypot(dx, dy);
-      const slots = overview.branchSlots.filter((slot) => slot.hubInstanceId);
-      if (slots.length === 0) {
-        setHoveredSlot('');
-        return;
-      }
-      const sectorSize = (2 * Math.PI) / slots.length;
-      const angle = Math.atan2(dy, dx);
-      const hoveredSlot = slots.find((slot) => {
-        const angleDifference = Math.atan2(
-          Math.sin(angle - slot.angle),
-          Math.cos(angle - slot.angle)
-        );
-        const outerRadius = slot.hubInstanceId === overlay.dataset.expandedSlotId
-          ? Number(overlay.dataset.activeRadius)
-          : Number(overlay.dataset.baseRadius);
-        return Math.abs(angleDifference) <= sectorSize / 2
-          && distance >= Number(overlay.dataset.innerRadius)
-          && distance <= outerRadius;
-      });
-      setHoveredSlot(hoveredSlot?.hubInstanceId ?? '');
+      setHoveredSlot(sectorAtRenderedPoint(overview, overlay, {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+      }) ?? '');
     };
 
     const handlePointerLeave = () => setHoveredSlot('');
@@ -566,7 +678,8 @@ export const NetworkGraph: React.FC = () => {
               true,
               compactHierarchyRef.current
             );
-        if (focusExpansionRef.current) cy.fit(visibleElements, 58);
+        if (sectorZoomRef.current) zoomToSector(cy, overview, sectorZoomRef.current);
+        else if (focusExpansionRef.current) cy.fit(visibleElements, 58);
         else fitOverview(cy, overview, visibleElements);
         if (sectorOverlayRef.current) {
           renderSectorGuide(cy, overview, sectorOverlayRef.current, focusExpansionRef.current);
@@ -597,7 +710,8 @@ export const NetworkGraph: React.FC = () => {
               true,
               compactHierarchyRef.current
             );
-        if (focusExpansionRef.current) cy.fit(visibleElements, 58);
+        if (sectorZoomRef.current) zoomToSector(cy, overview, sectorZoomRef.current);
+        else if (focusExpansionRef.current) cy.fit(visibleElements, 58);
         else fitOverview(cy, overview, visibleElements);
         if (sectorOverlayRef.current) {
           renderSectorGuide(cy, overview, sectorOverlayRef.current, focusExpansionRef.current);
@@ -616,14 +730,13 @@ export const NetworkGraph: React.FC = () => {
     const transitionId = ++focusTransitionRef.current;
     cancelAnimationFrame(focusAnimationFrameRef.current);
     window.clearTimeout(focusAnimationTimeoutRef.current);
-    cy.stop(true, false);
     cy.elements().stop(true, false);
     const basePositions = calculateSfiPositions(
       overview,
       layoutModeRef.current,
       cy.width(),
       cy.height(),
-      collectLayoutOptions(cy, compactHierarchyRef.current)
+      collectLayoutOptions(cy, overview, compactHierarchyRef.current)
     );
     const previousExpansion = focusExpansionRef.current;
     cy.elements('.focus-supplemental').remove();
@@ -678,6 +791,9 @@ export const NetworkGraph: React.FC = () => {
             sectorOverlayRef.current,
             clearExpansion ? null : expansion
           );
+        }
+        if (sectorZoomRef.current) {
+          zoomToSector(cy, overview, sectorZoomRef.current);
         }
       };
       const frame = (now: number) => {
@@ -838,6 +954,8 @@ export const NetworkGraph: React.FC = () => {
           const canonical = canonicalNodes.get(canonicalId);
           if (!canonical?.data) return;
           const visualId = `focus:${focusedNodeId}:${direction}:${canonicalId}`;
+          const rawSize = Number(anchor.data('size') ?? 72);
+          const size = Number.isFinite(rawSize) ? rawSize : 72;
           cy.add({
             group: 'nodes',
             data: {
@@ -845,13 +963,14 @@ export const NetworkGraph: React.FC = () => {
               id: visualId,
               canonicalCompanyId: canonicalId,
               focusDirection: direction,
+              focusBranchRootId: branchRootId,
+              size,
+              labelMaxWidth: size - 18,
             },
             position: { ...anchor.position() },
             classes: 'focus-supplemental highlighted',
           });
           supplementalNodeByDirection.set(`${direction}:${canonicalId}`, visualId);
-          const rawSize = Number(canonical.data.size ?? 32);
-          const size = Number.isFinite(rawSize) ? rawSize : 32;
           const nodeType = String(canonical.data.nodeType ?? 'external');
           const isInsideCompany = nodeType === 'internal'
             || nodeType === 'special-external' || nodeType === 'wapu';
@@ -862,7 +981,8 @@ export const NetworkGraph: React.FC = () => {
             direction,
             outside: !inside,
             terminalInside: nodeType === 'special-external',
-            ...visualSize(size, size, String(canonical.data.companyName ?? '')),
+            width: size,
+            height: size,
           });
           if (inside) temporarilyInsideIds.add(visualId);
         });
@@ -908,6 +1028,7 @@ export const NetworkGraph: React.FC = () => {
             isExternalGroup: true,
             externalGroupDirection: direction,
             externalGroupOwnerId: focusedNodeId,
+            focusBranchRootId: branchRootId,
             externalMemberIds: memberIds,
             size: 48,
           },
@@ -944,14 +1065,11 @@ export const NetworkGraph: React.FC = () => {
           || !externalMemberIdSet.has(String(node.data('canonicalCompanyId')))
         )
       ));
-      const baseBoundaryRadius = internalBoundaryRadius(overview, basePositions);
+      const baseBoundaryRadius = internalBoundaryRadius(cy, overview, basePositions);
       const anchorRadius = radiusAt(baseAnchorPosition, baseSfiPosition);
+      const anchorDiameter = Number(anchor.data('size') ?? 72);
       const upstreamClearance = upstreamFocusClearance(
-        visualSize(
-          SFI_OVERVIEW_NODE_DIAMETER,
-          SFI_OVERVIEW_NODE_DIAMETER,
-          String(anchor.data('companyName') ?? '')
-        ),
+        { width: anchorDiameter, height: anchorDiameter },
         supplementalSpecs.filter((spec) => spec.direction === 'incoming'),
         sectorAngle
       );
@@ -1153,12 +1271,15 @@ export const NetworkGraph: React.FC = () => {
     if (!cy) return;
     const nextZoom = Math.min(3, Math.max(0.08, cy.zoom() * factor));
     cy.stop();
-    cy.zoom({
-      level: nextZoom,
-      renderedPosition: {
-        x: cy.width() / 2,
-        y: cy.height() / 2,
+    cy.animate({
+      zoom: {
+        level: nextZoom,
+        renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 },
       },
+    }, {
+      duration: VIEWPORT_ANIMATION_DURATION,
+      easing: 'ease-in-out-cubic',
+      queue: false,
     });
     const overview = overviewRef.current;
     const overlay = sectorOverlayRef.current;
@@ -1171,19 +1292,32 @@ export const NetworkGraph: React.FC = () => {
     const cy = cyRef.current;
     const overview = overviewRef.current;
     if (!cy || !overview) return;
-    const visible = cy.elements().filter((element) =>
-      element.isNode()
-        ? overview.visibleNodeIds.has(element.id())
-        : overview.visibleEdgeIds.has(element.id())
-    );
+    sectorZoomRef.current = null;
+    setZoomedSectorId(null);
+    const visible = focusExpansionRef.current
+      ? cy.elements(':visible')
+      : cy.elements().filter((element) =>
+          element.isNode()
+            ? overview.visibleNodeIds.has(element.id())
+            : overview.visibleEdgeIds.has(element.id())
+        );
     if (visible.length > 0) {
-      cy.stop();
-      if (focusExpansionRef.current) cy.fit(visible, 58);
-      else fitOverview(cy, overview, visible);
+      if (focusExpansionRef.current) {
+        fitCollection(cy, visible, 58, cy.maxZoom(), true);
+      } else {
+        fitOverview(cy, overview, visible, true);
+      }
       const overlay = sectorOverlayRef.current;
       if (overlay) renderSectorGuide(cy, overview, overlay, focusExpansionRef.current);
     }
   };
+  resetViewportRef.current = handleFit;
+
+  useEffect(() => {
+    const handleResetView = () => resetViewportRef.current();
+    window.addEventListener('graph-reset-view', handleResetView);
+    return () => window.removeEventListener('graph-reset-view', handleResetView);
+  }, []);
 
   const handleFullscreen = async () => {
     try {
@@ -1292,6 +1426,19 @@ export const NetworkGraph: React.FC = () => {
         </div>
       )}
 
+      {zoomedSectorId && (
+        <button
+          type="button"
+          className="sector-zoom-exit glass-panel"
+          onClick={handleFit}
+          aria-label="Kembali ke lingkaran penuh"
+        >
+          <span aria-hidden="true">←</span>
+          Lihat semua
+          <kbd>Esc</kbd>
+        </button>
+      )}
+
       <div className="graph-controls glass-panel" role="toolbar" aria-label="Kontrol tampilan graph">
         <button
           type="button"
@@ -1315,8 +1462,10 @@ export const NetworkGraph: React.FC = () => {
           type="button"
           disabled={controlsDisabled}
           onClick={handleFit}
-          title="Tampilkan seluruh graph"
-          aria-label="Sesuaikan seluruh graph ke layar"
+          title={zoomedSectorId ? 'Kembali ke lingkaran penuh (Esc)' : 'Tampilkan seluruh graph'}
+          aria-label={zoomedSectorId
+            ? 'Kembali ke lingkaran penuh'
+            : 'Sesuaikan seluruh graph ke layar'}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5M12 8v8M8 12h8" />

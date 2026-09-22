@@ -15,9 +15,10 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' || e.key === 'Esc' || e.code === 'Escape') {
         dispatch({ type: 'CLEAR_FOCUS' });
         dispatch({ type: 'CLEAR_EDGE_SELECTION' });
+        window.dispatchEvent(new Event('graph-reset-view'));
       }
     };
     window.addEventListener('keydown', handleKeyDown);
