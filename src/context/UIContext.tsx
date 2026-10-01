@@ -19,6 +19,7 @@ export interface UIState {
   activeLayers: Set<DatasetName>;
   scopeFilter: ScopeFilter;
   universeMode: UniverseMode;
+  tracedNodeId: string | null;
   focusedNodeId: string | null;
   focusedExternalGroup: FocusedExternalGroup | null;
   selectedEdgeId: string | null;
@@ -30,6 +31,7 @@ export interface UIState {
   selectedMonth: PeriodFilter;
   transactionView: TransactionView;
   sfiLayoutMode: SfiLayoutMode;
+  showHelperGuides: boolean;
   nodeAnnotationMode: NodeAnnotationMode;
 }
 
@@ -37,6 +39,7 @@ type UIAction =
   | { type: 'TOGGLE_LAYER'; payload: DatasetName }
   | { type: 'SET_SCOPE_FILTER'; payload: ScopeFilter }
   | { type: 'SET_UNIVERSE_MODE'; payload: UniverseMode }
+  | { type: 'TRACE_NODE'; payload: string }
   | { type: 'SET_FOCUS_NODE'; payload: string }
   | { type: 'SHOW_EXTERNAL_GROUP'; payload: FocusedExternalGroup }
   | { type: 'CLEAR_EXTERNAL_GROUP' }
@@ -52,12 +55,14 @@ type UIAction =
   | { type: 'SET_MONTH_FILTER'; payload: PeriodFilter }
   | { type: 'SET_TRANSACTION_VIEW'; payload: TransactionView }
   | { type: 'SET_SFI_LAYOUT_MODE'; payload: SfiLayoutMode }
+  | { type: 'TOGGLE_HELPER_GUIDES' }
   | { type: 'SET_NODE_ANNOTATION_MODE'; payload: NodeAnnotationMode };
 
 const initialState: UIState = {
   activeLayers: new Set(['FM', 'FK', 'FM_CRTX', 'FK_CRTX']),
   scopeFilter: 'with-external',
   universeMode: 'active',
+  tracedNodeId: null,
   focusedNodeId: null,
   focusedExternalGroup: null,
   selectedEdgeId: null,
@@ -69,6 +74,7 @@ const initialState: UIState = {
   selectedMonth: 'all',
   transactionView: 'sales',
   sfiLayoutMode: 'hierarchy',
+  showHelperGuides: true,
   nodeAnnotationMode: 'director',
 };
 
@@ -84,23 +90,26 @@ function uiReducer(state: UIState, action: UIAction): UIState {
       return {
         ...state,
         activeLayers: newLayers,
+        tracedNodeId: null,
         focusedExternalGroup: null,
       };
     }
     case 'SET_SCOPE_FILTER':
-      return { ...state, scopeFilter: action.payload, focusedNodeId: null, focusedExternalGroup: null, selectedEdgeId: null };
+      return { ...state, scopeFilter: action.payload, tracedNodeId: null, focusedNodeId: null, focusedExternalGroup: null, selectedEdgeId: null };
     case 'SET_UNIVERSE_MODE':
-      return { ...state, universeMode: action.payload, focusedNodeId: null, focusedExternalGroup: null, selectedEdgeId: null };
+      return { ...state, universeMode: action.payload, tracedNodeId: null, focusedNodeId: null, focusedExternalGroup: null, selectedEdgeId: null };
+    case 'TRACE_NODE':
+      return { ...state, tracedNodeId: action.payload, focusedNodeId: null, focusedExternalGroup: null, selectedEdgeId: null, searchQuery: '' };
     case 'SET_FOCUS_NODE':
-      return { ...state, focusedNodeId: action.payload, focusedExternalGroup: null, selectedEdgeId: null, searchQuery: '' };
+      return { ...state, tracedNodeId: null, focusedNodeId: action.payload, focusedExternalGroup: null, selectedEdgeId: null, searchQuery: '' };
     case 'SHOW_EXTERNAL_GROUP':
-      return { ...state, focusedExternalGroup: action.payload, selectedEdgeId: null };
+      return { ...state, tracedNodeId: null, focusedExternalGroup: action.payload, selectedEdgeId: null };
     case 'CLEAR_EXTERNAL_GROUP':
       return { ...state, focusedExternalGroup: null };
     case 'CLEAR_FOCUS':
-      return { ...state, focusedNodeId: null, focusedExternalGroup: null };
+      return { ...state, tracedNodeId: null, focusedNodeId: null, focusedExternalGroup: null };
     case 'SELECT_EDGE':
-      return { ...state, selectedEdgeId: action.payload, focusedNodeId: null, focusedExternalGroup: null, searchQuery: '' };
+      return { ...state, tracedNodeId: null, selectedEdgeId: action.payload, focusedNodeId: null, focusedExternalGroup: null, searchQuery: '' };
     case 'CLEAR_EDGE_SELECTION':
       return { ...state, selectedEdgeId: null };
     case 'SET_SEARCH':
@@ -119,6 +128,7 @@ function uiReducer(state: UIState, action: UIAction): UIState {
                 action.payload > state.yearTo
               ? action.payload
               : state.yearTo,
+        tracedNodeId: null,
         focusedNodeId: null,
         focusedExternalGroup: null,
         selectedEdgeId: null,
@@ -135,6 +145,7 @@ function uiReducer(state: UIState, action: UIAction): UIState {
                 action.payload < state.yearFrom
               ? action.payload
               : state.yearFrom,
+        tracedNodeId: null,
         focusedNodeId: null,
         focusedExternalGroup: null,
         selectedEdgeId: null,
@@ -146,6 +157,7 @@ function uiReducer(state: UIState, action: UIAction): UIState {
         yearTo: action.payload,
         sameYear: true,
         selectedMonth: 'all',
+        tracedNodeId: null,
         focusedNodeId: null,
         focusedExternalGroup: null,
         selectedEdgeId: null,
@@ -157,6 +169,7 @@ function uiReducer(state: UIState, action: UIAction): UIState {
         sameYear: action.payload,
         yearFrom: action.payload ? selectedYear : state.yearFrom,
         yearTo: action.payload ? selectedYear : state.yearTo,
+        tracedNodeId: null,
         focusedNodeId: null,
         focusedExternalGroup: null,
         selectedEdgeId: null,
@@ -166,6 +179,7 @@ function uiReducer(state: UIState, action: UIAction): UIState {
       return {
         ...state,
         selectedMonth: action.payload,
+        tracedNodeId: null,
         focusedNodeId: null,
         focusedExternalGroup: null,
         selectedEdgeId: null,
@@ -174,6 +188,7 @@ function uiReducer(state: UIState, action: UIAction): UIState {
       return {
         ...state,
         transactionView: action.payload,
+        tracedNodeId: null,
         focusedNodeId: null,
         focusedExternalGroup: null,
         selectedEdgeId: null,
@@ -182,9 +197,15 @@ function uiReducer(state: UIState, action: UIAction): UIState {
       return {
         ...state,
         sfiLayoutMode: action.payload,
+        tracedNodeId: null,
         focusedNodeId: null,
         focusedExternalGroup: null,
         selectedEdgeId: null,
+      };
+    case 'TOGGLE_HELPER_GUIDES':
+      return {
+        ...state,
+        showHelperGuides: !state.showHelperGuides,
       };
     case 'SET_NODE_ANNOTATION_MODE':
       return {

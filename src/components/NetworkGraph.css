@@ -55,6 +55,21 @@
   stroke-linecap: round;
 }
 
+.sfi-hierarchy-guide {
+  display: none;
+  fill: none;
+  stroke: #168cff;
+  stroke-width: 3;
+  stroke-dasharray: 9 9;
+  stroke-linecap: round;
+  opacity: 0.9;
+  filter: drop-shadow(0 0 3px rgba(22, 140, 255, 0.42));
+}
+
+.sfi-sector-guide.show-hierarchy-guides .sfi-hierarchy-guide {
+  display: initial;
+}
+
 .sfi-sector-hover-outline {
   fill: none;
   stroke: #b9e6fa;
@@ -267,6 +282,49 @@
   outline-offset: 2px;
 }
 
+.sfi-helper-guide-control {
+  padding-left: 14px;
+  border-left: 1px solid var(--border-color);
+}
+
+.sfi-helper-guide-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.72);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.sfi-helper-guide-toggle:hover {
+  border-color: rgba(96, 165, 250, 0.65);
+  color: var(--text-main);
+}
+
+.sfi-helper-guide-toggle.active {
+  border-color: rgba(59, 130, 246, 0.75);
+  background: rgba(37, 99, 235, 0.18);
+  color: #bfdbfe;
+}
+
+.sfi-helper-guide-toggle:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.sfi-helper-guide-swatch {
+  width: 22px;
+  height: 0;
+  border-top: 2px dashed currentColor;
+}
+
 .sfi-overview-hint {
   position: absolute;
   right: 24px;
@@ -333,6 +391,13 @@
 
   .sfi-control-group {
     justify-content: space-between;
+  }
+
+  .sfi-helper-guide-control {
+    padding-top: 8px;
+    padding-left: 0;
+    border-top: 1px solid var(--border-color);
+    border-left: 0;
   }
 
   .sfi-overview-hint {

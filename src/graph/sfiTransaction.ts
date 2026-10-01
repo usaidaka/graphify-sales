@@ -760,7 +760,7 @@ export function createSfiTransactionOverview(
       [...nodeInstances.values()]
         .filter(({ canonicalCompanyId }) =>
           canonicalCompanyId !== sfi.id
-          && ['internal', 'special-external', 'wapu'].includes(
+          && ['internal', 'special-external'].includes(
             nodeByCanonicalId.get(canonicalCompanyId)?.nodeType ?? ''
           )
         )

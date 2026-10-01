@@ -15,6 +15,7 @@ import {
 } from '../graph/sfiTransaction';
 import { graphStyles } from '../graph/styles';
 import { partitionFocusedRelationships } from '../graph/focusProjection';
+import { projectHierarchyTrace } from '../graph/hierarchyTrace';
 import {
   RADIAL_LAYOUT_CONFIG,
   radiusAt,
@@ -23,12 +24,14 @@ import {
 } from '../graph/radialLayout';
 import {
   placeFocusSupplements,
+  resolveFocusOcclusions,
   type FocusSupplement,
   upstreamFocusClearance,
 } from '../graph/focusLayout';
 import './NetworkGraph.css';
 
 const VIEWPORT_ANIMATION_DURATION = 420;
+const OVERVIEW_FIT_PADDING = 92;
 
 function setViewport(
   cy: cytoscape.Core,
@@ -57,8 +60,8 @@ function fitCollection(
   padding: number,
   maximumZoom = cy.maxZoom(),
   animated = false
-) {
-  if (elements.length === 0) return;
+): number | null {
+  if (elements.length === 0) return null;
   const bounds = elements.boundingBox();
   const zoom = Math.min(maximumZoom, Math.max(cy.minZoom(), Math.min(
     Math.max(1, cy.width() - 2 * padding) / Math.max(1, bounds.w),
@@ -68,6 +71,7 @@ function fitCollection(
     x: cy.width() / 2 - (bounds.x1 + bounds.x2) / 2 * zoom,
     y: cy.height() / 2 - (bounds.y1 + bounds.y2) / 2 * zoom,
   }, animated);
+  return zoom;
 }
 
 function collectLayoutOptions(
@@ -132,10 +136,10 @@ function applySfiLayout(
 
   cy.batch(() => {
     cy.nodes().removeClass(
-      'sfi-overview-node sfi-center principal-hub replacement-hub highlighted focused-anchor dimmed'
+      'sfi-overview-node sfi-center principal-hub replacement-hub highlighted focused-anchor trace-path traced-anchor dimmed'
     );
     cy.edges().removeClass(
-      'sfi-edge value-ranked outgoing incoming highlighted dimmed'
+      'sfi-edge value-ranked outgoing incoming highlighted trace-path trace-ranked dimmed'
     );
 
     cy.nodes().forEach((node) => {
@@ -181,14 +185,13 @@ function fitOverview(
   overview: SfiTransactionOverview,
   elements: cytoscape.CollectionReturnValue,
   animated = false
-) {
-  if (elements.length === 0) return;
+): number | null {
+  if (elements.length === 0) return null;
   const centerNode = overview.sfiInstanceId
     ? cy.getElementById(overview.sfiInstanceId)
     : cy.collection();
   if (centerNode.length === 0) {
-    fitCollection(cy, elements, 58, cy.maxZoom(), animated);
-    return;
+    return fitCollection(cy, elements, OVERVIEW_FIT_PADDING, cy.maxZoom(), animated);
   }
 
   const center = centerNode.position();
@@ -211,7 +214,7 @@ function fitOverview(
     center.y - bounds.y1,
     bounds.y2 - center.y
   );
-  const padding = 58;
+  const padding = OVERVIEW_FIT_PADDING;
   const zoom = Math.min(cy.maxZoom(), Math.max(cy.minZoom(), Math.min(
     (cy.width() - 2 * padding) / (2 * radius),
     (cy.height() - 2 * padding) / (2 * radius)
@@ -220,6 +223,74 @@ function fitOverview(
     x: cy.width() / 2 - center.x * zoom,
     y: cy.height() / 2 - center.y * zoom,
   }, animated);
+  return zoom;
+}
+
+const TARGET_RENDERED_NODE_DIAMETER = 36;
+const MINIMUM_RENDERED_NODE_DIAMETER = 20;
+const MINIMUM_RENDERED_NODE_GAP = 2;
+const DENSE_LAYOUT_DISTANCE_PERCENTILE = 0.2;
+
+/**
+ * Keep overview nodes readable at the initial fitted viewport. The logical
+ * Cytoscape size is adjusted for the fitted zoom, so different year layouts
+ * aim for the same on-screen diameter. Dense years fall back together to one
+ * smaller diameter instead of mixing sizes or forcing overlapping circles.
+ */
+function normalizeOverviewNodeSize(
+  cy: cytoscape.Core,
+  overview: SfiTransactionOverview,
+  fittedZoom: number | null
+) {
+  if (!fittedZoom || fittedZoom <= 0) return;
+  const nodes = cy.nodes().filter((node) => overview.visibleNodeIds.has(node.id()));
+  if (nodes.length === 0) return;
+
+  const nearestCenterDistances: number[] = [];
+  for (let first = 0; first < nodes.length; first += 1) {
+    const firstPosition = nodes[first].position();
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (let second = 0; second < nodes.length; second += 1) {
+      if (first === second) continue;
+      const secondPosition = nodes[second].position();
+      nearestDistance = Math.min(
+        nearestDistance,
+        Math.hypot(
+          secondPosition.x - firstPosition.x,
+          secondPosition.y - firstPosition.y
+        ) * fittedZoom
+      );
+    }
+    if (Number.isFinite(nearestDistance)) nearestCenterDistances.push(nearestDistance);
+  }
+
+  nearestCenterDistances.sort((a, b) => a - b);
+  // A handful of unusually close endpoints should not make every company in
+  // the year tiny. Use a conservative lower percentile; dense outliers may
+  // touch slightly, while the overall graph remains readable and uniform.
+  const representativeDistance = nearestCenterDistances.length > 0
+    ? nearestCenterDistances[Math.floor(
+        (nearestCenterDistances.length - 1) * DENSE_LAYOUT_DISTANCE_PERCENTILE
+      )]
+    : Number.POSITIVE_INFINITY;
+  const availableDiameter = Number.isFinite(representativeDistance)
+    ? representativeDistance - MINIMUM_RENDERED_NODE_GAP
+    : TARGET_RENDERED_NODE_DIAMETER;
+  const renderedDiameter = Math.min(
+    TARGET_RENDERED_NODE_DIAMETER,
+    Math.max(MINIMUM_RENDERED_NODE_DIAMETER, availableDiameter)
+  );
+  const logicalDiameter = renderedDiameter / fittedZoom;
+  const renderedFontSize = Math.max(7.5, Math.min(9, renderedDiameter * 0.25));
+
+  cy.batch(() => {
+    nodes.forEach((node) => {
+      node.data('size', logicalDiameter);
+      node.data('labelMaxWidth', Math.max(12, renderedDiameter - 8) / fittedZoom);
+      node.data('fontSize', renderedFontSize / fittedZoom);
+      node.data('textOutlineWidth', 1.25 / fittedZoom);
+    });
+  });
 }
 
 interface OverviewSummary {
@@ -240,8 +311,10 @@ const EMPTY_SUMMARY: OverviewSummary = {
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const FOCUS_TRANSITION_DURATION = 560;
+const NODE_DOUBLE_TAP_DELAY = 280;
 const SECTOR_ZOOM_PADDING = 76;
 const SECTOR_ZOOM_MAX = 1.4;
+const FOCUS_MAX_RENDERED_NODE_DIAMETER = 56;
 
 interface FocusSectorExpansion {
   branchRootId: string;
@@ -275,6 +348,76 @@ function expansionStartProgress(
   return previous && next && previous.branchRootId === next.branchRootId
     ? previous.progress
     : 0;
+}
+
+function median(values: number[]): number {
+  const ordered = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(ordered.length / 2);
+  return ordered.length % 2 === 0
+    ? (ordered[middle - 1] + ordered[middle]) / 2
+    : ordered[middle];
+}
+
+function appendHierarchyGuides(
+  cy: cytoscape.Core,
+  overview: SfiTransactionOverview,
+  overlay: SVGSVGElement,
+  center: SfiPosition,
+  activeSlots: Array<SfiTransactionOverview['branchSlots'][number] & { hubInstanceId: string }>,
+  innerRadius: number,
+  outerRadius: number
+) {
+  const sectorSize = (2 * Math.PI) / activeSlots.length;
+  const hasSingleSector = activeSlots.length === 1;
+  const angleInset = Math.min(0.08, sectorSize * 0.06);
+
+  activeSlots.forEach((slot) => {
+    const radiiByLevel = new Map<number, number[]>();
+    cy.nodes().forEach((node) => {
+      if (
+        !overview.visibleNodeIds.has(node.id())
+        || !overview.insideBoundaryNodeIds.has(node.id())
+        || overview.branchRootByNode.get(node.id()) !== slot.hubInstanceId
+      ) return;
+
+      const level = overview.levelByNode.get(node.id()) ?? 0;
+      if (level < 1) return;
+      const position = node.renderedPosition();
+      const radius = Math.hypot(position.x - center.x, position.y - center.y);
+      const levelRadii = radiiByLevel.get(level) ?? [];
+      levelRadii.push(radius);
+      radiiByLevel.set(level, levelRadii);
+    });
+
+    const radii = [...radiiByLevel.values()]
+      .map(median)
+      .filter((radius) => radius > innerRadius + 18 && radius < outerRadius - 12)
+      .sort((a, b) => a - b)
+      .filter((radius, index, ordered) => index === 0 || radius - ordered[index - 1] >= 16);
+
+    radii.forEach((radius) => {
+      if (hasSingleSector) {
+        const circle = document.createElementNS(SVG_NAMESPACE, 'circle');
+        circle.setAttribute('class', 'sfi-hierarchy-guide');
+        circle.setAttribute('cx', String(center.x));
+        circle.setAttribute('cy', String(center.y));
+        circle.setAttribute('r', String(radius));
+        overlay.append(circle);
+        return;
+      }
+
+      const guide = document.createElementNS(SVG_NAMESPACE, 'path');
+      guide.setAttribute('class', 'sfi-hierarchy-guide');
+      guide.setAttribute('d', arcPath(
+        center,
+        radius,
+        slot.angle - sectorSize / 2 + angleInset,
+        slot.angle + sectorSize / 2 - angleInset,
+        false
+      ));
+      overlay.append(guide);
+    });
+  });
 }
 
 function renderSectorGuide(
@@ -330,6 +473,17 @@ function renderSectorGuide(
   overlay.dataset.activeRadius = String(activeOuterRadius);
   overlay.dataset.expandedSlotId = expandedSlot?.hubInstanceId ?? '';
   const hasSingleSector = activeSlots.length === 1;
+
+  appendHierarchyGuides(
+    cy,
+    overview,
+    overlay,
+    center,
+    activeSlots,
+    innerRadius,
+    Math.max(baseOuterRadius, activeOuterRadius)
+  );
+
   if (hasSingleSector || !expandedSlot || activeOuterRadius <= baseOuterRadius + 0.5) {
     const outerCircle = document.createElementNS(SVG_NAMESPACE, 'circle');
     outerCircle.setAttribute(
@@ -466,7 +620,18 @@ function zoomToSector(
     || (overview.branchRootByNode.get(node.id()) ?? node.id()) === branchRootId
   );
   if (nodes.length <= 1) return;
-  fitCollection(cy, nodes, SECTOR_ZOOM_PADDING, SECTOR_ZOOM_MAX, true);
+  const maximumNodeSize = Math.max(
+    1,
+    ...nodes.map((node) => Number(node.data('size') ?? 1))
+  );
+  const readableNodeZoom = FOCUS_MAX_RENDERED_NODE_DIAMETER / maximumNodeSize;
+  fitCollection(
+    cy,
+    nodes,
+    SECTOR_ZOOM_PADDING,
+    Math.min(SECTOR_ZOOM_MAX, readableNodeZoom),
+    true
+  );
 }
 
 export const NetworkGraph: React.FC = () => {
@@ -477,7 +642,9 @@ export const NetworkGraph: React.FC = () => {
   const overviewRef = useRef<SfiTransactionOverview | null>(null);
   const layoutModeRef = useRef<SfiLayoutMode>('hierarchy');
   const compactHierarchyRef = useRef(false);
+  const tracedOccurrenceRef = useRef<string | null>(null);
   const focusedOccurrenceRef = useRef<string | null>(null);
+  const pendingNodeTapRef = useRef<{ nodeId: string; timeoutId: number } | null>(null);
   const focusAnimationFrameRef = useRef(0);
   const focusAnimationTimeoutRef = useRef(0);
   const focusTransitionRef = useRef(0);
@@ -494,6 +661,10 @@ export const NetworkGraph: React.FC = () => {
 
   useEffect(() => {
     if (loading || !graph || !containerRef.current) return;
+    if (pendingNodeTapRef.current) {
+      window.clearTimeout(pendingNodeTapRef.current.timeoutId);
+      pendingNodeTapRef.current = null;
+    }
     const overview = createSfiTransactionOverview(graph, state.transactionView);
     const elements = buildSfiCytoscapeElements(graph, overview, state.nodeAnnotationMode);
 
@@ -508,6 +679,10 @@ export const NetworkGraph: React.FC = () => {
       });
       cy.on('tap', 'node', (event) => {
         if (event.target.data('isExternalGroup')) {
+          if (pendingNodeTapRef.current) {
+            window.clearTimeout(pendingNodeTapRef.current.timeoutId);
+            pendingNodeTapRef.current = null;
+          }
           dispatch({
             type: 'SHOW_EXTERNAL_GROUP',
             payload: {
@@ -518,22 +693,46 @@ export const NetworkGraph: React.FC = () => {
           });
           return;
         }
-        focusedOccurrenceRef.current = event.target.id();
-        const currentOverview = overviewRef.current;
-        if (currentOverview && event.target.id() !== currentOverview.sfiInstanceId) {
-          const branchRootId = event.target.data('focusBranchRootId')
-            ?? currentOverview.branchRootByNode.get(event.target.id())
-            ?? event.target.id();
-          sectorZoomRef.current = branchRootId;
-          setZoomedSectorId(branchRootId);
-          zoomToSector(cy, currentOverview, branchRootId);
+        const nodeId = event.target.id();
+        const canonicalNodeId = event.target.data('canonicalCompanyId') ?? nodeId;
+        const pendingTap = pendingNodeTapRef.current;
+
+        if (pendingTap && pendingTap.nodeId === nodeId) {
+          window.clearTimeout(pendingTap.timeoutId);
+          pendingNodeTapRef.current = null;
+          tracedOccurrenceRef.current = null;
+          focusedOccurrenceRef.current = nodeId;
+          const currentOverview = overviewRef.current;
+          if (currentOverview && nodeId !== currentOverview.sfiInstanceId) {
+            const branchRootId = event.target.data('focusBranchRootId')
+              ?? currentOverview.branchRootByNode.get(nodeId)
+              ?? nodeId;
+            sectorZoomRef.current = branchRootId;
+            setZoomedSectorId(branchRootId);
+            zoomToSector(cy, currentOverview, branchRootId);
+          }
+          dispatch({ type: 'SET_FOCUS_NODE', payload: canonicalNodeId });
+          return;
         }
-        dispatch({
-          type: 'SET_FOCUS_NODE',
-          payload: event.target.data('canonicalCompanyId') ?? event.target.id(),
-        });
+
+        if (pendingTap) window.clearTimeout(pendingTap.timeoutId);
+        pendingNodeTapRef.current = {
+          nodeId,
+          timeoutId: window.setTimeout(() => {
+            pendingNodeTapRef.current = null;
+            tracedOccurrenceRef.current = nodeId;
+            focusedOccurrenceRef.current = null;
+            sectorZoomRef.current = null;
+            setZoomedSectorId(null);
+            dispatch({ type: 'TRACE_NODE', payload: canonicalNodeId });
+          }, NODE_DOUBLE_TAP_DELAY),
+        };
       });
       cy.on('tap', 'edge', (event) => {
+        if (pendingNodeTapRef.current) {
+          window.clearTimeout(pendingNodeTapRef.current.timeoutId);
+          pendingNodeTapRef.current = null;
+        }
         if (event.target.data('isExternalGroup')) {
           dispatch({
             type: 'SHOW_EXTERNAL_GROUP',
@@ -557,6 +756,11 @@ export const NetworkGraph: React.FC = () => {
         const branchRootId = currentOverview && overlay
           ? sectorAtRenderedPoint(currentOverview, overlay, event.renderedPosition)
           : null;
+        if (pendingNodeTapRef.current) {
+          window.clearTimeout(pendingNodeTapRef.current.timeoutId);
+          pendingNodeTapRef.current = null;
+        }
+        tracedOccurrenceRef.current = null;
         focusedOccurrenceRef.current = null;
         dispatch({ type: 'CLEAR_FOCUS' });
         dispatch({ type: 'CLEAR_EDGE_SELECTION' });
@@ -609,7 +813,8 @@ export const NetworkGraph: React.FC = () => {
           true,
           compactHierarchyRef.current
         );
-        fitOverview(cy, overview, visibleElements);
+        const fittedZoom = fitOverview(cy, overview, visibleElements);
+        normalizeOverviewNodeSize(cy, overview, fittedZoom);
         if (sectorOverlayRef.current) {
           renderSectorGuide(cy, overview, sectorOverlayRef.current);
         }
@@ -661,6 +866,10 @@ export const NetworkGraph: React.FC = () => {
   useEffect(() => () => {
     cancelAnimationFrame(focusAnimationFrameRef.current);
     window.clearTimeout(focusAnimationTimeoutRef.current);
+    if (pendingNodeTapRef.current) {
+      window.clearTimeout(pendingNodeTapRef.current.timeoutId);
+      pendingNodeTapRef.current = null;
+    }
     cyRef.current?.destroy();
     cyRef.current = null;
   }, []);
@@ -687,7 +896,10 @@ export const NetworkGraph: React.FC = () => {
             );
         if (sectorZoomRef.current) zoomToSector(cy, overview, sectorZoomRef.current);
         else if (focusExpansionRef.current) cy.fit(visibleElements, 58);
-        else fitOverview(cy, overview, visibleElements);
+        else {
+          const fittedZoom = fitOverview(cy, overview, visibleElements);
+          normalizeOverviewNodeSize(cy, overview, fittedZoom);
+        }
         if (sectorOverlayRef.current) {
           renderSectorGuide(cy, overview, sectorOverlayRef.current, focusExpansionRef.current);
         }
@@ -719,7 +931,10 @@ export const NetworkGraph: React.FC = () => {
             );
         if (sectorZoomRef.current) zoomToSector(cy, overview, sectorZoomRef.current);
         else if (focusExpansionRef.current) cy.fit(visibleElements, 58);
-        else fitOverview(cy, overview, visibleElements);
+        else {
+          const fittedZoom = fitOverview(cy, overview, visibleElements);
+          normalizeOverviewNodeSize(cy, overview, fittedZoom);
+        }
         if (sectorOverlayRef.current) {
           renderSectorGuide(cy, overview, sectorOverlayRef.current, focusExpansionRef.current);
         }
@@ -801,6 +1016,14 @@ export const NetworkGraph: React.FC = () => {
         }
         if (sectorZoomRef.current) {
           zoomToSector(cy, overview, sectorZoomRef.current);
+        } else if (clearExpansion) {
+          const baseElements = cy.elements().filter((element) =>
+            element.isNode()
+              ? overview.visibleNodeIds.has(element.id())
+              : overview.visibleEdgeIds.has(element.id())
+          );
+          const fittedZoom = fitOverview(cy, overview, baseElements, true);
+          normalizeOverviewNodeSize(cy, overview, fittedZoom);
         }
       };
       const frame = (now: number) => {
@@ -980,7 +1203,7 @@ export const NetworkGraph: React.FC = () => {
           supplementalNodeByDirection.set(`${direction}:${canonicalId}`, visualId);
           const nodeType = String(canonical.data.nodeType ?? 'external');
           const isInsideCompany = nodeType === 'internal'
-            || nodeType === 'special-external' || nodeType === 'wapu';
+            || nodeType === 'special-external';
           const isIncomingSupplier = direction === 'incoming' && nodeType !== 'wapu';
           const inside = isInsideCompany || isIncomingSupplier;
           supplementalSpecs.push({
@@ -1117,6 +1340,54 @@ export const NetworkGraph: React.FC = () => {
         upstreamClearance.gap
       ).forEach((position, nodeId) => focusedPositions.set(nodeId, position));
 
+      const focusedNeighborIds = new Set<string>();
+      relationships.forEach((relationship) => {
+        const direction = relationship.source === focusedNodeId ? 'outgoing' : 'incoming';
+        if (externalRelationshipIds.has(relationship.id)) {
+          const groupId = externalGroupIds[direction];
+          if (cy.getElementById(groupId).length > 0) focusedNeighborIds.add(groupId);
+          return;
+        }
+        const existing = cy.edges(':visible').filter((edge) =>
+          edge.data('canonicalEdgeId') === relationship.id
+          && (targetIds.has(edge.source().id()) || targetIds.has(edge.target().id()))
+        );
+        existing.forEach((edge) => {
+          const counterpartId = targetIds.has(edge.source().id())
+            ? edge.target().id()
+            : edge.source().id();
+          if (!targetIds.has(counterpartId)) focusedNeighborIds.add(counterpartId);
+        });
+        const canonicalCounterpartId = relationship.source === focusedNodeId
+          ? relationship.target
+          : relationship.source;
+        const supplementalId = supplementalNodeByDirection.get(
+          `${direction}:${canonicalCounterpartId}`
+        );
+        if (supplementalId) focusedNeighborIds.add(supplementalId);
+      });
+
+      const resolveNeighborOcclusions = () => {
+        const collisionNodes = [...focusedNeighborIds].flatMap((nodeId) => {
+          const node = cy.getElementById(nodeId);
+          const position = focusedPositions.get(nodeId);
+          if (node.length === 0 || !position) return [];
+          const spec = supplementalSpecs.find(({ id }) => id === nodeId);
+          const rawSize = Number(node.data('size') ?? 72);
+          const size = Number.isFinite(rawSize) ? rawSize : 72;
+          return [{
+            id: nodeId,
+            width: spec?.width ?? size,
+            height: spec?.height ?? size,
+          }];
+        });
+        resolveFocusOcclusions(
+          focusedAnchorPosition,
+          collisionNodes,
+          focusedPositions
+        ).forEach((position, nodeId) => focusedPositions.set(nodeId, position));
+      };
+
       const focusedInsideIds = new Set([
         ...activeBranchNodes
           .filter((node) => overview.insideBoundaryNodeIds.has(node.id()))
@@ -1130,7 +1401,7 @@ export const NetworkGraph: React.FC = () => {
           return position ? radiusAt(position, baseSfiPosition) : 0;
         })
       );
-      const focusedBoundaryRadius = Math.max(
+      let focusedBoundaryRadius = Math.max(
         baseBoundaryRadius,
         deepestFocusedInsideRadius + SFI_INTERNAL_BOUNDARY_PADDING
       );
@@ -1140,21 +1411,38 @@ export const NetworkGraph: React.FC = () => {
           .map((node) => node.id()),
         ...supplementalSpecs.filter((spec) => spec.outside).map((spec) => spec.id),
       ];
-      const outsideFloor = focusedBoundaryRadius + 48;
-      outsideIds.forEach((nodeId) => {
-        const position = focusedPositions.get(nodeId);
-        if (!position) return;
-        const radius = radiusAt(position, baseSfiPosition);
-        if (radius >= outsideFloor) return;
-        const angle = Math.atan2(
-          position.y - baseSfiPosition.y,
-          position.x - baseSfiPosition.x
-        );
-        focusedPositions.set(nodeId, {
-          x: baseSfiPosition.x + outsideFloor * Math.cos(angle),
-          y: baseSfiPosition.y + outsideFloor * Math.sin(angle),
+      const keepOutsideNodesBeyond = (minimumRadius: number) => {
+        outsideIds.forEach((nodeId) => {
+          const position = focusedPositions.get(nodeId);
+          if (!position) return;
+          const radius = radiusAt(position, baseSfiPosition);
+          if (radius >= minimumRadius) return;
+          const angle = Math.atan2(
+            position.y - baseSfiPosition.y,
+            position.x - baseSfiPosition.x
+          );
+          focusedPositions.set(nodeId, {
+            x: baseSfiPosition.x + minimumRadius * Math.cos(angle),
+            y: baseSfiPosition.y + minimumRadius * Math.sin(angle),
+          });
         });
-      });
+      };
+      keepOutsideNodesBeyond(focusedBoundaryRadius + 48);
+      resolveNeighborOcclusions();
+
+      const resolvedDeepestInsideRadius = Math.max(
+        0,
+        ...[...focusedInsideIds].map((nodeId) => {
+          const position = focusedPositions.get(nodeId);
+          return position ? radiusAt(position, baseSfiPosition) : 0;
+        })
+      );
+      focusedBoundaryRadius = Math.max(
+        baseBoundaryRadius,
+        resolvedDeepestInsideRadius + SFI_INTERNAL_BOUNDARY_PADDING
+      );
+      keepOutsideNodesBeyond(focusedBoundaryRadius + 48);
+      resolveNeighborOcclusions();
       nextExpansion = {
         branchRootId,
         baseRadius: baseBoundaryRadius,
@@ -1274,6 +1562,76 @@ export const NetworkGraph: React.FC = () => {
     );
   }, [state.focusedNodeId, relationshipGraph, layoutRunning]);
 
+  useEffect(() => {
+    const cy = cyRef.current;
+    const overview = overviewRef.current;
+    if (!cy || !overview || layoutRunning || state.focusedNodeId) return;
+
+    cy.batch(() => {
+      cy.nodes().removeClass('highlighted trace-path traced-anchor dimmed');
+      cy.edges('.trace-ranked').forEach((edge) => {
+        edge.removeData('badgeOffset');
+        if (layoutModeRef.current !== 'value') edge.removeData('rankLabel');
+      });
+      cy.edges().removeClass('highlighted trace-path trace-ranked dimmed');
+    });
+    if (!state.tracedNodeId) return;
+
+    const matchingOccurrences = cy.nodes(':visible').filter(
+      (node) => node.data('canonicalCompanyId') === state.tracedNodeId
+        && overview.visibleNodeIds.has(node.id())
+    );
+    const preferredOccurrence = tracedOccurrenceRef.current
+      ? cy.getElementById(tracedOccurrenceRef.current)
+      : cy.collection();
+    const selectedOccurrence = (
+      preferredOccurrence.length > 0
+      && overview.visibleNodeIds.has(preferredOccurrence.id())
+      && preferredOccurrence.data('canonicalCompanyId') === state.tracedNodeId
+        ? preferredOccurrence.first()
+        : matchingOccurrences.first()
+    ) as cytoscape.NodeSingular;
+    if (selectedOccurrence.length === 0) return;
+
+    const trace = projectHierarchyTrace(
+      overview,
+      selectedOccurrence.id(),
+      (nodeId) => cy.getElementById(nodeId).data('nodeType') === 'wapu'
+    );
+    if (trace.nodeIds.size === 0) return;
+
+    const childByEdgeId = new Map<string, string>();
+    overview.parentEdgeByNode.forEach((edgeId, nodeId) => {
+      childByEdgeId.set(edgeId, nodeId);
+    });
+
+    cy.batch(() => {
+      const visibleElements = cy.elements(':visible');
+      visibleElements.addClass('dimmed');
+
+      trace.nodeIds.forEach((nodeId) => {
+        const node = cy.getElementById(nodeId);
+        if (node.length > 0) {
+          node.removeClass('dimmed').addClass('highlighted trace-path');
+        }
+      });
+      selectedOccurrence.addClass('traced-anchor');
+
+      trace.edgeIds.forEach((edgeId) => {
+        const edge = cy.getElementById(edgeId);
+        if (edge.length === 0) return;
+        const childId = childByEdgeId.get(edgeId);
+        const rank = childId ? overview.valueRankByNode.get(childId) ?? 1 : 1;
+        edge.data('rankLabel', `#${rank}`);
+        edge.data(
+          'badgeOffset',
+          RADIAL_LAYOUT_CONFIG.badgeOffset * (rank % 2 === 0 ? -1 : 1)
+        );
+        edge.removeClass('dimmed').addClass('highlighted trace-path trace-ranked');
+      });
+    });
+  }, [state.tracedNodeId, state.focusedNodeId, state.sfiLayoutMode, layoutRunning]);
+
   const setZoomAroundViewportCenter = (factor: number) => {
     const cy = cyRef.current;
     if (!cy) return;
@@ -1313,7 +1671,8 @@ export const NetworkGraph: React.FC = () => {
       if (focusExpansionRef.current) {
         fitCollection(cy, visible, 58, cy.maxZoom(), true);
       } else {
-        fitOverview(cy, overview, visible, true);
+        const fittedZoom = fitOverview(cy, overview, visible, true);
+        normalizeOverviewNodeSize(cy, overview, fittedZoom);
       }
       const overlay = sectorOverlayRef.current;
       if (overlay) renderSectorGuide(cy, overview, overlay, focusExpansionRef.current);
@@ -1364,7 +1723,7 @@ export const NetworkGraph: React.FC = () => {
         </div>
       )}
 
-      <div className="sfi-view-controls glass-panel" aria-label="Pengaturan posisi SFI">
+      <div className="sfi-view-controls glass-panel" aria-label="Pengaturan tampilan SFI">
         <div className="sfi-control-group" role="group" aria-label="Mode posisi">
           <span>Posisi</span>
           <div className="sfi-segmented-control">
@@ -1386,6 +1745,18 @@ export const NetworkGraph: React.FC = () => {
             </button>
           </div>
         </div>
+        <div className="sfi-control-group sfi-helper-guide-control">
+          <span>Garis bantu</span>
+          <button
+            type="button"
+            className={`sfi-helper-guide-toggle ${state.showHelperGuides ? 'active' : ''}`}
+            aria-pressed={state.showHelperGuides}
+            onClick={() => dispatch({ type: 'TOGGLE_HELPER_GUIDES' })}
+          >
+            <span className="sfi-helper-guide-swatch" aria-hidden="true" />
+            {state.showHelperGuides ? 'Aktif' : 'Nonaktif'}
+          </button>
+        </div>
       </div>
 
       {isEmpty && (
@@ -1397,7 +1768,15 @@ export const NetworkGraph: React.FC = () => {
         </div>
       )}
 
-      <svg ref={sectorOverlayRef} className="sfi-sector-guide" aria-hidden="true" />
+      <svg
+        ref={sectorOverlayRef}
+        className={`sfi-sector-guide ${
+          state.showHelperGuides && state.sfiLayoutMode === 'hierarchy'
+            ? 'show-hierarchy-guides'
+            : ''
+        }`}
+        aria-hidden="true"
+      />
       <div ref={containerRef} className="cy-canvas" />
 
       {!isEmpty && !state.focusedNodeId && (
@@ -1410,6 +1789,7 @@ export const NetworkGraph: React.FC = () => {
               ? ` · ${overviewSummary.replacements} hub pengganti`
               : ''}
           </small>
+          <small>Klik sekali: sorot alur · Klik 2×: buka jaringan &amp; detail</small>
         </div>
       )}
 

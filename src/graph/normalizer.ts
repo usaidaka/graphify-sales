@@ -373,10 +373,9 @@ export function normalize(
 
   // Filter by Scope
   if (scopeFilter === 'internal-only') {
-    // SFI remains the mandatory anchor even under an internal-only scope.
-    nodes = nodes.filter(n => n.nodeType === 'internal' || n.nodeType === 'wapu' || isSfiNode(n));
-  } else {
-    nodes = nodes.filter(n => n.nodeType !== 'wapu');
+    // Scope only controls ordinary external companies. WAPU and every
+    // explicit business role remain visible in both choices.
+    nodes = nodes.filter(n => n.nodeType !== 'external' || isSfiNode(n));
   }
   const scopedNodeIds = new Set(nodes.map(n => n.id));
   edges = edges.filter(e => scopedNodeIds.has(e.source) && scopedNodeIds.has(e.target));

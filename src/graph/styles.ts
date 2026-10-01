@@ -183,6 +183,13 @@ export const graphStyles: any = [
     }
   },
   {
+    selector: 'node.sfi-overview-node[fontSize][textOutlineWidth]',
+    style: {
+      'font-size': 'data(fontSize)',
+      'text-outline-width': 'data(textOutlineWidth)'
+    }
+  },
+  {
     selector: 'node.principal-hub',
     style: {
       'border-color': '#22d3ee',
@@ -249,6 +256,25 @@ export const graphStyles: any = [
     }
   },
   {
+    selector: 'node.trace-path',
+    style: {
+      'opacity': 1,
+      'z-index': 24
+    }
+  },
+  {
+    selector: 'node.traced-anchor',
+    style: {
+      'opacity': 1,
+      'border-width': 6,
+      'border-color': '#60a5fa',
+      'shadow-blur': 18,
+      'shadow-color': '#3b82f6',
+      'shadow-opacity': 0.85,
+      'z-index': 32
+    }
+  },
+  {
     selector: 'node.external-group',
     style: {
       'width': 48,
@@ -271,6 +297,15 @@ export const graphStyles: any = [
       'width': 2.5,
       'opacity': 1,
       'z-index': 16
+    }
+  },
+  {
+    selector: 'edge.sfi-edge.trace-path',
+    style: {
+      'width': 4,
+      'opacity': 1,
+      'arrow-scale': 1.45,
+      'z-index': 18
     }
   },
   // Keep focus dimming last so role-specific SFI styles cannot restore the

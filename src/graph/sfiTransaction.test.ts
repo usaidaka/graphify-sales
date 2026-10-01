@@ -5,6 +5,8 @@ import { hasVisualCollisions } from './radialLayout'
 import {
   calculateSfiPositions,
   createSfiTransactionOverview,
+  SFI_INTERNAL_BOUNDARY_MIN_RADIUS,
+  SFI_INTERNAL_BOUNDARY_PADDING,
   type SfiTransactionOverview,
   type TransactionView,
   type VisualBranchKey,
@@ -627,10 +629,20 @@ describe('calculateSfiPositions', () => {
       result.parentByNode.get(target) === source
       && result.levelByNode.get(target) === (result.levelByNode.get(source) ?? 0) + 1
     )).toBe(true)
-    expect(wapuNodes.every(({ id }) => result.insideBoundaryNodeIds.has(id))).toBe(true)
+    expect(wapuNodes.every(({ id }) => !result.insideBoundaryNodeIds.has(id))).toBe(true)
     expect(result.canonicalVisibleNodeIds.has('wapu')).toBe(true)
     expect(result.canonicalVisibleEdgeIds.size).toBe(5)
     const positions = calculateSfiPositions(result, 'hierarchy', 1200, 800)
+    const deepestInsideRadius = Math.max(...[...result.insideBoundaryNodeIds].map((nodeId) =>
+      distance(positions, result.sfiInstanceId!, nodeId)
+    ))
+    const boundaryRadius = Math.max(
+      SFI_INTERNAL_BOUNDARY_MIN_RADIUS,
+      deepestInsideRadius + SFI_INTERNAL_BOUNDARY_PADDING
+    )
+    expect(wapuNodes.every(({ id }) =>
+      distance(positions, result.sfiInstanceId!, id) > boundaryRadius
+    )).toBe(true)
     expect(wapuEdges.every(({ source, target }) =>
       distance(positions, result.sfiInstanceId!, target)
         > distance(positions, result.sfiInstanceId!, source)

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { placeFocusSupplements, upstreamFocusClearance } from './focusLayout';
+import {
+  placeFocusSupplements,
+  resolveFocusOcclusions,
+  upstreamFocusClearance,
+} from './focusLayout';
 
 const center = { x: 0, y: 0 };
 const anchor = { x: 240, y: 0 };
@@ -70,5 +74,39 @@ describe('placeFocusSupplements', () => {
 
     expect(radius(positions.get('bca')!)).toBeGreaterThan(420);
     expect(positions.get('bca')!.y).toBeCloseTo(0);
+  });
+});
+
+describe('resolveFocusOcclusions', () => {
+  it('moves a nearer company away from another supplier edge', () => {
+    const positions = new Map([
+      ['msp', { x: 100, y: 0 }],
+      ['snt', { x: 220, y: 0 }],
+      ['ddmi', { x: 110, y: -100 }],
+    ]);
+    const resolved = resolveFocusOcclusions(center, [
+      { id: 'msp', width: 64, height: 64 },
+      { id: 'snt', width: 64, height: 64 },
+      { id: 'ddmi', width: 64, height: 64 },
+    ], positions);
+    const msp = resolved.get('msp')!;
+
+    expect(Math.abs(msp.y)).toBeGreaterThan(44);
+    expect(resolved.get('snt')).toEqual(positions.get('snt'));
+  });
+
+  it('does not move an already clear focused star', () => {
+    const positions = new Map([
+      ['a', { x: 140, y: -100 }],
+      ['b', { x: 180, y: 100 }],
+      ['c', { x: 260, y: 0 }],
+    ]);
+    const resolved = resolveFocusOcclusions(center, [
+      { id: 'a', width: 52, height: 52 },
+      { id: 'b', width: 52, height: 52 },
+      { id: 'c', width: 52, height: 52 },
+    ], positions);
+
+    expect(resolved).toEqual(positions);
   });
 });
