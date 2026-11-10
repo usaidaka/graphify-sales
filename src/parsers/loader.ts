@@ -6,7 +6,7 @@ export const GOOGLE_SHEET_ID =
   import.meta.env.VITE_GOOGLE_SHEET_ID || DEFAULT_SHEET_ID;
 export const GOOGLE_SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL || "";
 export const GOOGLE_SHEET_URL =
-  import.meta.env.GOOGLE_SHEET_URL ||
+  import.meta.env.VITE_GOOGLE_SHEET_URL ||
   `https://docs.google.com/spreadsheets/d/${GOOGLE_SHEET_ID}/export?format=xlsx`;
 
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
