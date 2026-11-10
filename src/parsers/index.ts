@@ -83,6 +83,35 @@ function buildNormalizedColIndex(headerRow: any[]): Record<string, number> {
   return colIndex;
 }
 
+function normalizedHeader(value: unknown): string {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function findCompanyMasterHeaderRowIndex(json: any[][]): number {
+  const requiredHeaders = [
+    COLUMN_MAPS.DATA_PERUSAHAAN.company,
+    COLUMN_MAPS.DATA_PERUSAHAAN.abbreviation,
+    COLUMN_MAPS.DATA_PERUSAHAAN.group,
+  ].map(normalizedHeader);
+
+  for (let index = 0; index < Math.min(json.length, 20); index += 1) {
+    const headers = new Set((json[index] ?? []).map(normalizedHeader));
+    if (requiredHeaders.every((header) => headers.has(header))) return index;
+  }
+  return -1;
+}
+
+function readLeadingRows(sheet: xlsx.WorkSheet, maximumRows = 20): any[][] {
+  const reference = sheet['!ref'];
+  if (!reference) return [];
+  const range = xlsx.utils.decode_range(reference);
+  range.e.r = Math.min(range.e.r, range.s.r + maximumRows - 1);
+  return xlsx.utils.sheet_to_json(sheet, {
+    header: 1,
+    range: xlsx.utils.encode_range(range),
+  });
+}
+
 function getColumnValue(row: any[], colIndexMap: Record<string, number>, possibleKeys: string[]): any {
   for (const key of possibleKeys) {
     const normalizedKey = key.toLowerCase().trim();
@@ -173,18 +202,20 @@ function extractRows(sheet: xlsx.WorkSheet, headerMap: Record<string, string>): 
 export function parseDataPerusahaanSheet(sheet: xlsx.WorkSheet): { companies: string[]; companyMaster: InternalCompanyMaster[] } {
   const json: any[][] = xlsx.utils.sheet_to_json(sheet, { header: 1 });
   if (json.length <= 0) return { companies: [], companyMaster: [] };
-  
-  const headerRow = json[0];
+
+  const headerRowIndex = findCompanyMasterHeaderRowIndex(json);
+  if (headerRowIndex === -1) return { companies: [], companyMaster: [] };
+  const headerRow = json[headerRowIndex];
   let compIdx = -1;
   let abbrIdx = -1;
   let groupIdx = -1;
 
   headerRow.forEach((col: any, index: number) => {
     if (col && typeof col === 'string') {
-      const key = col.trim();
-      if (key === COLUMN_MAPS.DATA_PERUSAHAAN.company) compIdx = index;
-      if (key === COLUMN_MAPS.DATA_PERUSAHAAN.abbreviation) abbrIdx = index;
-      if (key === COLUMN_MAPS.DATA_PERUSAHAAN.group) groupIdx = index;
+      const key = normalizedHeader(col);
+      if (key === normalizedHeader(COLUMN_MAPS.DATA_PERUSAHAAN.company)) compIdx = index;
+      if (key === normalizedHeader(COLUMN_MAPS.DATA_PERUSAHAAN.abbreviation)) abbrIdx = index;
+      if (key === normalizedHeader(COLUMN_MAPS.DATA_PERUSAHAAN.group)) groupIdx = index;
     }
   });
 
@@ -193,7 +224,7 @@ export function parseDataPerusahaanSheet(sheet: xlsx.WorkSheet): { companies: st
   const companies: string[] = [];
   const companyMaster: InternalCompanyMaster[] = [];
 
-  for (let i = 1; i < json.length; i++) {
+  for (let i = headerRowIndex + 1; i < json.length; i++) {
     const row = json[i];
     if (row && row[compIdx]) {
       const fullName = String(row[compIdx]).trim();
@@ -217,21 +248,44 @@ export function parseDataPerusahaanSheet(sheet: xlsx.WorkSheet): { companies: st
   return { companies, companyMaster };
 }
 
-export function parseWorkbook(buffer: ArrayBuffer): ParsedWorkbook {
-  const workbook = xlsx.read(buffer, { type: 'array' });
-  
-  // Find sheets (case-insensitive & search for Data Perusahaan / Display)
-  let dpSheetName = '';
-  workbook.SheetNames.forEach(name => {
-    const lower = name.toLowerCase();
-    if (lower.includes('perusahaan') || lower.includes('display')) {
-      dpSheetName = name;
-    }
+function findCompanyMasterSheet(workbook: xlsx.WorkBook): string | null {
+  const candidates = workbook.SheetNames.flatMap((name) => {
+    const sheet = workbook.Sheets[name];
+    if (!sheet) return [];
+    const rows = readLeadingRows(sheet);
+    if (findCompanyMasterHeaderRowIndex(rows) === -1) return [];
+
+    const normalizedName = normalizedHeader(name);
+    const priority = normalizedName === 'scdb'
+      ? 0
+      : normalizedName === 'data perusahaan'
+        ? 1
+        : normalizedName.includes('perusahaan')
+          ? 2
+          : 3;
+    return [{ name, priority }];
   });
 
-  const dpResult = dpSheetName && workbook.Sheets[dpSheetName] 
-    ? parseDataPerusahaanSheet(workbook.Sheets[dpSheetName]) 
+  candidates.sort((a, b) => a.priority - b.priority);
+  return candidates[0]?.name ?? null;
+}
+
+export function parseWorkbook(buffer: ArrayBuffer): ParsedWorkbook {
+  const workbook = xlsx.read(buffer, { type: 'array' });
+
+  const companyMasterSheetName = findCompanyMasterSheet(workbook);
+  const companyMasterSheet = companyMasterSheetName
+    ? workbook.Sheets[companyMasterSheetName]
+    : undefined;
+  const dpResult = companyMasterSheet
+    ? parseDataPerusahaanSheet(companyMasterSheet)
     : { companies: [], companyMaster: [] };
+  if (dpResult.companyMaster.length === 0) {
+    throw new Error(
+      'Master perusahaan internal tidak ditemukan. Pastikan workbook memiliki sheet '
+      + 'dengan kolom Perusahaan, Int. Pr, dan Grup (misalnya SCDB).'
+    );
+  }
 
   return {
     fm: workbook.Sheets['FM'] ? extractRows(workbook.Sheets['FM'], COLUMN_MAPS.FM) : [],
